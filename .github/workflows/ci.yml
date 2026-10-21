@@ -12,6 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# GitHub ke runners UTC par chalte hain, jabki prayer-time logic local time
+# maanta hai. Bina TZ ke Fajr raat 23:49 nikalta hai aur 9 widget tests gir
+# jaate hain jo laptop par pass hote hain.
+env:
+  TZ: Asia/Kolkata
+
 jobs:
   analyze-and-test:
     name: Analyze & Test
@@ -19,6 +25,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Process-level TZ Dart/Dart packages ke liye kaafi nahi hota - OS clock
+      # bhi IST par honi chahiye.
+      - name: Set runner timezone
+        run: sudo timedatectl set-timezone Asia/Kolkata
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
