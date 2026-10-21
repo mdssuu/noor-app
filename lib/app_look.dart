@@ -1570,7 +1570,12 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Text(
-                afterSunrise ? 'Next prayer in' : 'Time left in',
+                // The reference's own words: the peach card says "Now time
+                // is" over the prayer that is on, and "End time - 3:54pm"
+                // under the big clock. The clock stays a countdown — the
+                // same fact, live — and the caption names the instant it
+                // reaches zero.
+                afterSunrise ? 'Next prayer in' : 'Now time is',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
@@ -1596,7 +1601,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                       style: GoogleFonts.outfit(
                         fontSize: 16.5,
                         fontWeight: FontWeight.w700,
-                        color: NoorColors.ink,
+                        color: NoorColors.emeraldDeep,
                         height: 1.25,
                       ),
                     ),
@@ -1634,10 +1639,10 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 // "End time" would end nothing for a reader waiting on
                 // Dhuhr, so the line answers the voice the kicker used.
                 afterSunrise && next != null
-                    ? 'Begins ${settings.format(_nextCalc ?? next.at)}'
+                    ? 'Begins - ${settings.format(_nextCalc ?? next.at)}'
                     : next == null
-                        ? 'End time —'
-                        : 'End time: ${settings.format(_nextCalc ?? next.at)}',
+                        ? 'End time - —'
+                        : 'End time - ${settings.format(_nextCalc ?? next.at)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(

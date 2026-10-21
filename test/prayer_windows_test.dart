@@ -184,7 +184,7 @@ void main() {
 
       // Pinned into the afternoon: run the suite between local sunrise and
       // Dhuhr and the card would rightly speak in its morning voice —
-      // "Begins" — and this End-line contract would find no "End time:".
+      // "Begins" — and this End-line contract would find no "End time -".
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: NextPrayerHero(
@@ -197,11 +197,11 @@ void main() {
         ),
       ));
 
-      final Finder endLine = find.textContaining('End time: ');
+      final Finder endLine = find.textContaining('End time - ');
       expect(endLine, findsOneWidget);
       final String shown = tester.widget<Text>(endLine).data!;
       expect(
-        official.map((String s) => 'End time: $s'),
+        official.map((String s) => 'End time - $s'),
         contains(shown),
         reason: 'the end of a prayer is official, not the masjid’s Jamaat',
       );
@@ -288,7 +288,7 @@ void main() {
         ),
       ));
 
-      expect(find.text('Time left in'), findsNothing,
+      expect(find.text('Now time is'), findsNothing,
           reason: 'no one has a namaz to finish at sunrise');
       expect(find.text('Next prayer in'), findsOneWidget);
       expect(find.text('Dhuhr'), findsOneWidget,
@@ -298,7 +298,7 @@ void main() {
       expect(find.text(tick(day.times['dhuhr']!.difference(during))),
           findsOneWidget,
           reason: 'and it counts down to the calculated Dhuhr');
-      expect(find.text('Begins ${settings.format(day.times['dhuhr']!)}'),
+      expect(find.text('Begins - ${settings.format(day.times['dhuhr']!)}'),
           findsOneWidget,
           reason: 'the line under it says when that Dhuhr begins');
 
@@ -340,13 +340,13 @@ void main() {
       ));
 
       final DateTime end = day.times['asr']!;
-      expect(find.text('Time left in'), findsOneWidget);
+      expect(find.text('Now time is'), findsOneWidget);
       expect(find.text('Dhuhr'), findsOneWidget);
       expect(find.byIcon(Icons.wb_sunny_outlined), findsWidgets,
           reason: 'the running prayer wears its own day glyph');
       expect(find.text(tick(end.difference(during))), findsOneWidget,
           reason: 'the remaining time of the prayer whose time is on');
-      expect(find.text('End time: ${settings.format(end)}'), findsOneWidget,
+      expect(find.text('End time - ${settings.format(end)}'), findsOneWidget,
           reason: 'and the countdown runs down to that official End');
       expect(find.byType(LinearProgressIndicator), findsOneWidget,
           reason: 'the window’s rail draws how much of it has passed');
@@ -430,7 +430,7 @@ void main() {
           reason: 'a second ticking number identical to card A’s');
       expect(find.text(tick(asr.difference(during))), findsOneWidget,
           reason: 'card A’s countdown stands alone');
-      expect(find.text('End time: ${settings.format(asr)}'), findsOneWidget);
+      expect(find.text('End time - ${settings.format(asr)}'), findsOneWidget);
 
       await tearDownWidgets(tester);
     });
@@ -483,7 +483,7 @@ void main() {
           reason: 'a Jamaat on the calculated clock says nothing new');
       expect(find.text(settings.format(calcAsr)), findsNothing,
           reason: 'not the End clock a second time either');
-      expect(find.text('End time: ${settings.format(calcAsr)}'), findsOneWidget,
+      expect(find.text('End time - ${settings.format(calcAsr)}'), findsOneWidget,
           reason: 'card A alone carries the one clock that matters');
 
       await tearDownWidgets(tester);
@@ -512,12 +512,12 @@ void main() {
         ),
       ));
 
-      expect(find.text('Time left in'), findsOneWidget);
+      expect(find.text('Now time is'), findsOneWidget);
       expect(find.text('Isha'), findsOneWidget,
           reason: 'Isha’s Awwal moves the hero, not the Jamaat an hour later');
       expect(find.text('Maghrib'), findsNothing,
           reason: 'the old behaviour — stuck on the prayer before — is the bug');
-      expect(find.text('End time: ${settings.format(day.fajrTomorrow)}'),
+      expect(find.text('End time - ${settings.format(day.fajrTomorrow)}'),
           findsOneWidget);
       expect(find.text(tick(day.fajrTomorrow.difference(during))),
           findsOneWidget,
