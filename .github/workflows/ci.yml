@@ -72,6 +72,17 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # android/gradle.properties -Xmx8G maangta hai (laptop ke liye theek),
+      # lekin GitHub ke free runner me sirf 4 GB RAM hai. Us halat me Gradle
+      # daemon hi mar jaata hai - "Could not receive a message from the daemon".
+      # Yahan CI ke liye sirf heap cap karte hain; laptop ka config same rehta hai.
+      - name: Cap Gradle memory for the 4 GB runner
+        run: |
+          sed -i 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m -XX:ReservedCodeCacheSize=256m/' android/gradle.properties
+          echo "org.gradle.workers.max=2" >> android/gradle.properties
+          echo "--- gradle.properties used by CI ---"
+          cat android/gradle.properties
+
       - name: Build debug APK
         run: flutter build apk --debug
 
