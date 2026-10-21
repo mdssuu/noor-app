@@ -227,15 +227,28 @@ a cloud container defined by `.devcontainer/`.
 
 **Get an APK onto the phone:**
 
-- **Automatic** - push a tag such as `v1.5.2`. `.github/workflows/release.yml`
-  builds a release APK and attaches it to a GitHub Release, downloadable
-  straight from the Releases page.
+- **Automatic (recommended)** - har `master` push par
+  `.github/workflows/release.yml` release APK banata hai aur GitHub ka
+  **Latest APK (master)** release update kar deta hai. Seedha link:
+  <https://github.com/mdssuu/privatecode/releases/download/latest/noor-masjid-time-latest.apk>
+  (yahi link hamesha latest APK deta hai, kabhi nahi badalta).
+- **Official version** - ek tag push karo, jaise `git tag v1.5.2 && git push origin v1.5.2`.
+  Us tag ka proper GitHub Release banta hai (auto release notes + versioned
+  APK file `noor-masjid-time-1.5.2+8.apk`).
 - **Manual** - open **Actions** → **Release APK** → **Run workflow**. The APK
   is uploaded as an artifact instead.
 
-Release builds are signed with the debug key (see `android/app/build.gradle.kts`),
-so this APK installs over your existing app as long as the version in
-`pubspec.yaml` keeps going up.
+> **Pehli baar install karte waqt:** pehle wali APK debug key se sign thi, is
+> liye nayi release APK uske upar install nahi hogi ("signatures do not
+> match"). Phone se purani app **ek baar uninstall** karo, phir nayi APK
+> install karo. Uske baad har release seedha update hoga, kyunki ab sab
+> release ek hi fixed key se sign hoti hain
+> (`android/key.properties` + `android/app/noor-release.p12`).
+>
+> Wo key private repo me hai - jiska bhi repo access hai woh signed APK bana
+> sakta hai. Play Store jaise public store par daalne se pehle key rotate kar
+> lo. Usi key se laptop par bhi release build hoti hai, is liye laptop ki APK
+> bhi phone wali APK ke upar install ho jaati hai.
 
 **Keep this laptop in the loop too:**
 
@@ -250,4 +263,10 @@ so this APK installs over your existing app as long as the version in
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `CI` | every push / PR to `master` | `flutter analyze` + `flutter test` + debug APK artifact |
-| `Release APK` | tag `v*`, or a manual run | release APK attached to a GitHub Release |
+| `Release APK` | every push to `master`, tag `v*`, or a manual run | release APK → GitHub Release (`releases/tag/latest` + versioned tags) |
+
+> **Runner ki disk:** GitHub ke runner image me ~50 GB preinstalled tools hote
+> hain (dotnet, ghc, swift, NDK). Bina hataye Flutter ka Gradle build
+> *"No space left on device"* par fail hota tha. Is liye dono workflows me
+> build se pehle **Free disk space** step hai, aur sirf `arm` + `arm64` ABIs
+> build hoti hain (x86_64 emulator ke liye tha).

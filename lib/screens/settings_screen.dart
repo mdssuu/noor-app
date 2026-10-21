@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../app_look.dart';
 import '../app_settings.dart';
@@ -258,7 +259,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   // ---------------------------------------------------------------- widgets
 
   static const String _appName = 'Noor • Masjid Time';
-  static const String _appVersion = '1.0.0+1';
 
   Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 4),
@@ -1088,7 +1088,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: (double v) => _settings.setHijriAdjustment(v.round()),
                 ),
                 const Divider(height: 26),
-                _infoRow(Icons.info_outline, 'App version', _appVersion),
+                FutureBuilder<PackageInfo>(
+                  future: PackageInfo.fromPlatform(),
+                  builder:
+                      (BuildContext context, AsyncSnapshot<PackageInfo> snap) {
+                    final String version = snap.hasData
+                        ? '${snap.data!.version} (${snap.data!.buildNumber})'
+                        : '—';
+                    return _infoRow(Icons.info_outline, 'App version', version);
+                  },
+                ),
                 const SizedBox(height: 6),
                 InkWell(
                   onTap: _showPrivacy,

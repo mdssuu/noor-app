@@ -16,7 +16,11 @@ android/app/.cxx/
 android/gradle/
 *.keystore
 *.jks
-key.properties
+# NOTE: android/key.properties is deliberately NOT ignored (only a stray
+# key.properties in the repo root is). The release signing key has to be the
+# same on the laptop and on CI - a per-runner debug key means every new APK
+# refuses to install over the previous one ("signatures do not match").
+/key.properties
 
 # iOS / macOS
 ios/Pods/

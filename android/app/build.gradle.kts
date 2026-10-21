@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -6,6 +8,23 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing key.
+//
+// GitHub Actions ka har runner apna ek naya debug keystore banata hai. Agar
+// release APK debug key se sign hoti, to har nayi APK purani APK ke upar
+// install hi nahi hoti ("signatures do not match"), yaani GitHub par naya
+// release aata hai par phone par update nahi hota. Is liye ek FIXED key
+// (android/key.properties + android/app/noor-release.p12) use karo.
+//
+// Key na ho to debug key par wapas aa jata hai, taaki `flutter run --release`
+// laptop par chalte rahe.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+val hasReleaseKey = keystorePropertiesFile.exists()
 
 android {
     namespace = "com.sunesra_app"
@@ -35,11 +54,27 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                // storeFile key.properties me module ke hisaab se relative hai.
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeType = keystoreProperties.getProperty("storeType", "PKCS12")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // FIXED release key jab tak key.properties maujood hai, warna debug key.
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
