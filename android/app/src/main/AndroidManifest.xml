@@ -1,0 +1,283 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Noor • Masjid Time -->
+    <!-- Camera: capture the physical prayer time board for on-device OCR. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Location: sort nearby masjids locally with Geolocator.distanceBetween. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Internet: Firestore, OpenStreetMap tiles, Google Sign-In, ML Kit model. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Local notifications when a favourite masjid time changes (Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Azan reminders must land on the exact minute. Android 14 revokes
+         SCHEDULE_EXACT_ALARM by default, so USE_EXACT_ALARM (auto-granted) is
+         declared too; the Dart side falls back to an inexact alarm anyway. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Lets the playback notification raise the recitation screen while the
+         phone is locked. That screen is what the volume keys reach: a key
+         event goes to the focused window and to nothing else, and with the
+         keyguard up there was no window of ours to catch it. Android 14+ asks
+         the user for this one separately. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- The other half of the recitation screen: the launch that covers an
+         *unlocked* phone, which no full-screen intent reaches. Special access
+         rather than a runtime prompt, so it is granted from a system screen —
+         and it must be declared here at all or the app never appears on that
+         screen, `Settings.canDrawOverlays()` stays false however often it is
+         asked, and the AOSP toggle has nothing to grant. MIUI additionally
+         keeps its own "Display pop-up windows while running in the background"
+         switch behind op 10021; see PopUpWindows.kt. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- The Azaan plays from a foreground service so a 1-3 minute recitation
+         is not cut short by the process being trimmed, and on the alarm
+         stream so it survives the phone being on silent. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- Asked on first open: Doze delays an inexact or optimised-away alarm,
+         which is exactly how the "remind me in a minute" check misses. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application
+        android:label="Noor"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="false"
+        android:forceDarkAllowed="false">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible while the
+                 Flutter UI initializes. After the Android process has started,
+                 this will continue to determine the Window background behind
+                 the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <!-- The MAIN/LAUNCHER filter has moved down to the aliases: the
+                 launcher icon is drawn from whichever component holds that
+                 filter, and the owner can switch between the four below
+                 without an update. See LauncherIcons.kt. -->
+        </activity>
+
+        <!-- The four launcher icons, in the order the admin panel counts
+             them. All four are the same activity in different dress, so the
+             switch is a matter of enabling one and disabling the rest —
+             no relaunch, no download, no update. Variant 0 is enabled here
+             in the manifest so a phone that has never been told otherwise
+             has exactly one icon to tap. -->
+        <activity-alias
+            android:name=".Launcher0"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher1"
+            android:enabled="false"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher2"
+            android:enabled="false"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher3"
+            android:enabled="false"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- flutter_local_notifications (v16+) no longer declares these itself:
+             without ScheduledNotificationReceiver the alarm still fires but the
+             broadcast has no target, so NOTHING is ever posted. The boot
+             receiver re-arms the schedule after a reboot or an app update.
+             See README "To schedule notifications". -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Exact alarms for the Azaan point straight here. The receiver is
+             registered in the manifest (not at runtime) precisely because it
+             has to be reachable with the app not running. -->
+        <receiver
+            android:name=".AzaanAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Puts the alarms back after a reboot, an OS or app update, a
+             timezone change or a manual clock change. AlarmManager's list
+             lives in memory: without this, every restart leaves the app
+             silently mute until the user next happens to open it. It has to be
+             exported to be woken by the system's own boot broadcast. -->
+        <receiver
+            android:name=".AzaanScheduleReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
+        </receiver>
+
+        <!-- The home-screen widget: renders the picture Dart prepared and
+             re-picks "next prayer" from the phone's own clock on every
+             half-hourly redraw, so the line stays true while the app is
+             closed. exported because boot and clock-change broadcasts are
+             implicit — like the alarm receiver above, its work on receipt
+             is only ever a redraw from its own preferences. -->
+        <receiver
+            android:name=".NoorWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/noor_widget_info" />
+        </receiver>
+
+        <!-- The lock-screen card's metronome: an exact alarm at the next
+             prayer instant, re-armed by every refresh of the card, so the
+             "Next" line keeps moving with the clock while nothing is open
+             and no widget is placed. Reached only by our own explicit
+             PendingIntent — registered, but with no intent-filter. -->
+        <receiver
+            android:name=".NextFlipReceiver"
+            android:exported="false" />
+
+        <!-- Holds the recitation while it plays with no activity on screen. -->
+        <service
+            android:name=".AzaanPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!-- The recitation's own screen: a focused window, over the lock
+             screen, so a volume key has something to land on and stop the
+             Azaan with. It draws a card rather than covering the lock screen,
+             and closes itself when the clip does. -->
+        <activity
+            android:name=".AzaanActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:theme="@style/AzaanOverlayTheme" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <!-- image_picker: let the user pick a camera app to photograph the board -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+
+        <!-- PopUpWindows asks SecurityCenter whether it has a permission
+             editor before starting one. On Android 11+ an undeclared package
+             is invisible to resolveActivity(), which would answer null on
+             every MIUI build and quietly send the user to the AOSP overlay
+             page instead — the one page that does not hold the switch the
+             warning names. -->
+        <package android:name="com.miui.securitycenter" />
+
+        <!-- The system screens this app opens are reached by implicit intent
+             and would otherwise be filtered out of the resolution by package
+             visibility. -->
+        <intent>
+            <action android:name="android.settings.MANAGE_OVERLAY_PERMISSION" />
+            <data android:scheme="package" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.APPLICATION_DETAILS_SETTINGS" />
+            <data android:scheme="package" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.REQUEST_SCHEDULE_EXACT_ALARM" />
+            <data android:scheme="package" />
+        </intent>
+
+        <!-- url_launcher: the About page's mailto: and https: links — without
+             these entries Android 11+ resolves nothing and launchUrl returns
+             false on every device the app ships to. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mailto" />
+        </intent>
+    </queries>
+</manifest>

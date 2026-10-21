@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Crescent night: a moon with a star beside it, on the deep blue of the
+     2am sky the app itself draws at that hour.
+     108dp canvas with the art inside the middle ~66, which is the only part
+     adaptive icons promise to show — anything outside it is cropped by the
+     launcher's own mask. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The moon: one disc with a second disc cut out of it. `evenOdd` is
+         what makes the second path a hole rather than a second moon. -->
+    <path
+        android:fillColor="#F3C96B"
+        android:fillType="evenOdd"
+        android:pathData="M50,28 A26,26 0 1 0 50,80 A26,26 0 1 0 50,28 Z M62,24 A24,24 0 1 0 62,72 A24,24 0 1 0 62,24 Z" />
+
+    <!-- A five-point star, up and to the right of the crescent's opening. -->
+    <path
+        android:fillColor="#FFF1C9"
+        android:pathData="M78,30 L79.5,33.9 L83.7,34.2 L80.5,36.8 L81.5,40.9 L78,38.6 L74.5,40.9 L75.5,36.8 L72.3,34.2 L76.5,33.9 Z" />
+</vector>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon (Android 8.0+), variant 1: crescent night —
+     the moon the app draws after sunset, on its own navy sky.
+     Switched from the admin panel — see LauncherIcons.kt. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background_night" />
+    <foreground android:drawable="@drawable/ic_launcher_crescent_fg" />
+</adaptive-icon>

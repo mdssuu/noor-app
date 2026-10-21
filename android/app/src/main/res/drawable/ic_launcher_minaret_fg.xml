@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A dome between two minarets, ivory on teal — the silhouette every
+     prayer card in the app already stands against its sky. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The dome, and the drum it sits on. -->
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M38,66 A16,16 0 0 1 70,66 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M36,66 H72 V72 H36 Z" />
+
+    <!-- The finial on top of the dome. -->
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M53.2,44 H54.8 V50 H53.2 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M51.6,44 A2.4,2.4 0 0 1 56.4,44 Z" />
+
+    <!-- The two minarets, each capped the same way. -->
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M27,50 H32 V72 H27 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M28.9,42 H30.1 V46 H28.9 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M25.8,46 A3.1,3.1 0 0 1 33.2,46 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M76,50 H81 V72 H76 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M77.9,42 H79.1 V46 H77.9 Z" />
+    <path
+        android:fillColor="#F2EFE6"
+        android:pathData="M74.8,46 A3.1,3.1 0 0 1 82.2,46 Z" />
+</vector>

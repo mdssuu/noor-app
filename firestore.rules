@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /masjids/{doc} {
+      allow read: if request.auth != null;
+
+      allow create, update: if request.auth != null
+        && request.resource.data.keys().hasAll([
+             'masjidName', 'fajr', 'dhuhr', 'asr', 'maghrib', 'isha', 'juma',
+             'latitude', 'longitude', 'address', 'lastUpdated', 'updatedByUid'])
+        && request.resource.data.updatedByUid == request.auth.uid;
+
+      // Deleting is only for the account that put the masjid on the list.
+      // `createdByUid` is stamped on create and never on update, so editing
+      // someone else's entry cannot transfer ownership of it. Documents older
+      // than that field fall back to whoever last updated them.
+      //
+      // `createdByUid` is deliberately NOT in the hasAll list above: adding it
+      // would reject updates to documents that predate it.
+      allow delete: if request.auth != null
+        && (resource.data.get('createdByUid', '') == request.auth.uid
+            || (resource.data.get('createdByUid', '') == ''
+                && resource.data.get('updatedByUid', '') == request.auth.uid));
+    }
+
+    match /users/{uid}/favourites/{doc} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // The app's own configuration: one document deciding what every phone
+    // opens on, what stands behind every screen, and what the Azaan sounds
+    // like — so that changing any of it needs a save here rather than a
+    // rebuild of the app.
+    //
+    // Readable by any signed-in account, because every phone needs it and
+    // there is nothing in it that is anyone's secret. Writable by one
+    // account only, and *this* is where that is decided: the app hides these
+    // controls from everyone else as a courtesy, which is a courtesy — a
+    // client cannot keep a determined person out of its own code. A claim in
+    // an ID token can.
+    //
+    // The shape is checked because every reader parses it without asking
+    // questions: a document that answers a string where a map belongs would
+    // not break the app (each field falls back to the built-in default), but
+    // it would silently reset every user's defaults, which is worth a rule.
+    match /app_config/{doc} {
+      allow read: if request.auth != null;
+
+      allow write: if request.auth != null
+        && request.auth.token.email == 'kook80028@gmail.com'
+        && request.resource.data.keys().hasAll(['defaults', 'branding', 'azanUrls'])
+        && request.resource.data.defaults is map
+        && request.resource.data.branding is map
+        && request.resource.data.azanUrls is map;
+    }
+  }
+}
