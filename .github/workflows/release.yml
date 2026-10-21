@@ -1,0 +1,55 @@
+name: Release APK
+
+# Phone se APK chahiye?  Settings > Tags me "v1.5.2" jaisa tag daalo aur push karo.
+# GitHub ek release banayega jisme APK directly download karne ko milega.
+on:
+  push:
+    tags: [ "v*" ]
+  # Ya Actions tab me is workflow ko khud Run button se chala lo.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      # Tag push par: release banao jisme APK laga ho.
+      - name: Attach APK to a GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
+
+      # Manual run (bina tag ke) par: artifact ke roop me rakho.
+      - name: Upload APK artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: noor-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30

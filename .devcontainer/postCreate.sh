@@ -25,6 +25,12 @@ echo "==> Flutter version:"
 flutter --version
 
 echo "==> Installing project dependencies..."
-flutter pub get
+# Agar pub get fail bhi jaaye to Codespace creation mat roko - terminal me
+# khud chala lena, container waise bhi ban jaayega.
+if flutter pub get; then
+  echo "==> Dependencies installed."
+else
+  echo "==> WARNING: 'flutter pub get' fail hua. Terminal me khud chala lo." >&2
+fi
 
 echo "==> Done. Open lib/main.dart and start coding."

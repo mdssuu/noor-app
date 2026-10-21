@@ -188,3 +188,53 @@ runtime prompt — both are granted from a system screen the app opens for you:
 flutter test     # unit tests for the OCR → prayer-time parsing engine
 flutter analyze  # zero issues
 ```
+
+---
+
+## Work from your phone (GitHub Codespaces)
+
+You do not need this laptop switched on. The whole Flutter environment lives in
+a cloud container defined by `.devcontainer/`.
+
+**First time, about 5 minutes:**
+
+1. Open `github.com/mdssuu/privatecode` in Chrome on your phone.
+2. Tap **Code** → **Codespaces** tab → **Create codespace on master**.
+3. The container installs the current Flutter stable and runs `flutter pub get`
+   by itself (`.devcontainer/postCreate.sh`). Wait for "Done."
+4. Chrome will offer to switch to the desktop site - accept it. The editor
+   needs it.
+
+**Everyday edits:**
+
+1. Open a file, edit it, tap the tick to commit.
+2. Push from the terminal tab: `git push`
+3. CI (`.github/workflows/ci.yml`) then runs `flutter analyze`, all 273 tests,
+   and uploads a debug APK as an artifact.
+
+**Get an APK onto the phone:**
+
+- **Automatic** - push a tag such as `v1.5.2`. `.github/workflows/release.yml`
+  builds a release APK and attaches it to a GitHub Release, downloadable
+  straight from the Releases page.
+- **Manual** - open **Actions** → **Release APK** → **Run workflow**. The APK
+  is uploaded as an artifact instead.
+
+Release builds are signed with the debug key (see `android/app/build.gradle.kts`),
+so this APK installs over your existing app as long as the version in
+`pubspec.yaml` keeps going up.
+
+**Keep this laptop in the loop too:**
+
+```powershell
+.\scripts\sync.ps1   # pulls whatever you changed on GitHub back down here
+```
+
+---
+
+## CI status
+
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| `CI` | every push / PR to `master` | `flutter analyze` + `flutter test` + debug APK artifact |
+| `Release APK` | tag `v*`, or a manual run | release APK attached to a GitHub Release |
