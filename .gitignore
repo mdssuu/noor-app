@@ -33,5 +33,8 @@ macos/Pods/
 .DS_Store
 Thumbs.db
 
-# Secrets
-.env
+# NOTE: .env is intentionally committed. pubspec.yaml bundles it as an asset,
+# so without it in the repo every GitHub / Codespace build produces an app with
+# no GEMINI_API_KEY and silently falls back to on-device OCR. The key ships
+# inside the APK either way (see gemini_ocr_service.dart), so keeping it out of
+# git bought nothing and broke every off-laptop build.
