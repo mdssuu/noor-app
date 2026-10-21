@@ -86,6 +86,27 @@ jobs:
       - name: Build debug APK
         run: flutter build apk --debug
 
+      # Build fail hone par asli wajah API se kabhi-kabhi nahi milti (job log 404).
+      # Isliye runner ki haalat workflow khud likh deta hai.
+      - name: Diagnose a failed build
+        if: failure()
+        run: |
+          echo "=== DISK (kya space khatam?) ==="
+          df -h
+          echo ""
+          echo "=== MEMORY (kya OOM hua?) ==="
+          free -m
+          echo ""
+          echo "=== android/gradle.properties actually used ==="
+          cat android/gradle.properties
+          echo ""
+          echo "=== Android SDK ==="
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME" 2>/dev/null || true
+          echo ""
+          echo "=== gradle-wrapper.properties ==="
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
