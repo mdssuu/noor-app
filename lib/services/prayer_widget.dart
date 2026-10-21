@@ -115,6 +115,27 @@ class PrayerWidget {
     }
   }
 
+  /// Takes the always-on prayer card down - both halves of it: the
+  /// home-screen widget and the lock-screen card.
+  ///
+  /// The card is fed by the same payload as the widget, so one native
+  /// call clears both: the widget falls back to its empty state and
+  /// the lock-screen notification goes away with its pending flip.
+  ///
+  /// A platform without the matching native change simply keeps the
+  /// card; an exception escaping into the switch handler would be
+  /// worse than a card that stayed up.
+  static Future<void> clearCard() async {
+    try {
+      await _channel.invokeMethod<void>('clear');
+      debugPrint('Noor ▸ prayer card taken down');
+    } on MissingPluginException catch (error) {
+      debugPrint('Noor ▸ widget channel absent: $error');
+    } catch (error) {
+      debugPrint('Noor ▸ prayer card could not be taken down: $error');
+    }
+  }
+
   /// Pushes the picture to every widget on the home screens.
   ///
   /// The payload crosses the channel as one JSON string rather than a
@@ -132,6 +153,12 @@ class PrayerWidget {
     required double longitude,
     required String areaName,
   }) async {
+    // The card is off for good: the widget and the lock screen stay
+    // empty until the user brings it back, so there is nothing to push.
+    if (!AppSettings.instance.prayerCardVisible) {
+      await clearCard();
+      return;
+    }
     try {
       final Map<String, Object?> payload = buildPayload(
         latitude: latitude,

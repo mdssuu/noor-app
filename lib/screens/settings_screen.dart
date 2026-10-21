@@ -175,6 +175,37 @@ class _SettingsScreenState extends State<SettingsScreen>
   double get _effectiveLongitude =>
       _settings.customLongitude ?? widget.gpsLongitude ?? LocationService.fallbackAnchor.y;
 
+  /// The always-on prayer card: the home-screen widget and the
+  /// lock-screen card.
+  ///
+  /// Turning it off hides the card and nothing else - the prayer
+  /// reminders, the Azaan and the favourite-masjid alerts keep
+  /// working. The card that is already on screen goes away at once,
+  /// and the app stops feeding it until the user brings it back.
+  Future<void> _togglePrayerCard(bool on) async {
+    _settings.setPrayerCardVisible(on);
+    if (!mounted) return;
+    setState(() {});
+    if (on) {
+      // Bring it straight back, rather than waiting for the next push.
+      await _reschedule();
+    } else {
+      await PrayerWidget.clearCard();
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 5),
+        content: Text(
+          on
+              ? 'The prayer card is back on your home and lock screen.'
+              : 'The prayer card is off. Your reminders and the Azaan '
+                  'keep working.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _reschedule() async {
     if (!mounted) return;
     try {
@@ -624,12 +655,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         _label('When will the Azaan play?'),
-                        _hint('One prayer can be announced twice — once at the '
-                            'calculated Awwal time and again at your favourite '
-                            'masjid’s Jamaat time. Pick how many times you '
-                            'want to hear the Azaan.'),
+                        _hint(
+                      _settings.hasPrePrayerReminder
+                          ? 'A pre-prayer reminder is on, so the Azaan plays only at your favourite masjid’s Jamaat time.'
+                          : 'One prayer can be announced twice — once at the calculated Awwal time and again at your favourite masjid’s Jamaat time. Pick how many times you want to hear the Azaan.'),
                         DropdownButtonFormField<String>(
-                          initialValue: _settings.azaanTiming,
+                          key: ValueKey(_settings.azaanTimingOptions.join('|')),
+                          initialValue: _settings.azaanTimingOptions
+                                  .contains(_settings.azaanTiming)
+                              ? _settings.azaanTiming
+                              : _settings.azaanTimingOptions.first,
                           isExpanded: true,
                           decoration: InputDecoration(
                             filled: true,
@@ -652,7 +687,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   color: NoorColors.emerald, width: 1.4),
                             ),
                           ),
-                          items: kAzaanTimingOptions
+                          items: _settings.azaanTimingOptions
                               .map((String key) => DropdownMenuItem<String>(
                                     value: key,
                                     child: Text(azaanTimingLabel(key),
@@ -829,6 +864,34 @@ class _SettingsScreenState extends State<SettingsScreen>
                     color: NoorColors.onGlassMuted,
                     height: 1.45),
               ),
+            ),
+          ),
+
+          // =============================== 3a. PRAYER CARD
+          const SectionHeader(title: 'Prayer card'),
+          GoldCard(
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                SwitchListTile(
+                  value: _settings.prayerCardVisible,
+                  onChanged: _togglePrayerCard,
+                  activeThumbColor: NoorColors.emerald,
+                  title: Text('Home & lock-screen card',
+                      style: GoogleFonts.outfit(
+                          fontSize: 13.5, fontWeight: FontWeight.w700, color: NoorColors.onGlass)),
+                  subtitle: Text(
+                    _settings.prayerCardVisible
+                        ? 'On — the next prayer and today’s times sit on '
+                            'your home screen and your lock screen.'
+                        : 'Off — the card is hidden for good. Your reminders, '
+                            'the Azaan and masjid alerts keep working.',
+                    style:
+                        GoogleFonts.outfit(fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
+                  ),
+                ),
+              ],
             ),
           ),
 

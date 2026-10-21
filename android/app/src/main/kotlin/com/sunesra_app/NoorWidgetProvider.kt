@@ -77,6 +77,17 @@ class NoorWidgetProvider : AppWidgetProvider() {
          * Stores the picture Dart prepared and redraws every widget from it.
          * Called from [MainActivity]'s method-channel handler.
          */
+        /**
+         * Empties the widget.
+         *
+         * The payload goes, so the widget falls back to its blank state
+         * instead of showing the last prayer times it was handed.
+         */
+        fun clear(context: Context) {
+            prefs(context).edit().remove(KEY_PAYLOAD).apply()
+            updateAll(context)
+        }
+
         fun push(context: Context, payloadJson: String) {
             prefs(context).edit().putString(KEY_PAYLOAD, payloadJson).apply()
             updateAll(context)

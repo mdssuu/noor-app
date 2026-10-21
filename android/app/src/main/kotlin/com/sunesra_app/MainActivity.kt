@@ -42,6 +42,7 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "Noor/MainActivity"
         private const val CHANNEL_NAME = "noor_masjid_time/azaan"
         private const val WIDGET_CHANNEL_NAME = "noor_masjid_time/widget"
+        private const val METHOD_WIDGET_CLEAR = "clear"
         private const val METHOD_WIDGET_UPDATE = "update"
 
         private const val METHOD_SCHEDULE = "schedule"
@@ -119,6 +120,11 @@ class MainActivity : FlutterActivity() {
         )
         widgetChannel.setMethodCallHandler { call, result ->
             when (call.method) {
+                METHOD_WIDGET_CLEAR -> {
+                    NoorWidgetProvider.clear(this)
+                    LockScreenNotifier.clear(this)
+                    result.success(null)
+                }
                 METHOD_WIDGET_UPDATE -> {
                     val json = call.arguments as? String
                     if (json == null) {

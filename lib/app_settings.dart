@@ -485,6 +485,15 @@ class AppSettings extends ChangeNotifier {
   static const String _kCustomLng = 'customLng';
   static const String _kCustomCity = 'customCity';
   static const String _kNotifMaster = 'azanNotifications';
+
+  /// Whether the always-on prayer card may be shown on the home
+  /// screen and the lock screen.
+  ///
+  /// This is the one setting the user can leave off for good: it hides
+  /// the card and nothing else - the prayer reminders, the Azaan and the
+  /// favourite-masjid alerts keep working exactly as they did.
+  static const String _kPrayerCard = 'prayerCardVisible';
+
   static const String _kAzan = 'azanSound';
 
   /// "When will the Azaan play?" — which of the two announcements for a prayer may
@@ -594,6 +603,7 @@ class AppSettings extends ChangeNotifier {
   double? _customLng;
   String _customCity = '';
   bool _notificationsEnabled = true;
+  bool _prayerCardVisible = true;
   bool _onboarded = false;
   String _azanSound = 'makkah';
 
@@ -657,6 +667,13 @@ class AppSettings extends ChangeNotifier {
   int get hijriAdjustment => _hijriAdjustment;
   bool get notificationsEnabled => _notificationsEnabled;
 
+  /// Whether the always-on prayer card (home screen + lock screen) may
+  /// show.
+  ///
+  /// Off is permanent: the setting is written to disk, it survives a
+  /// restart, and nothing in the app turns it back on by itself.
+  bool get prayerCardVisible => _prayerCardVisible;
+
   /// Whether this profile has already walked through the setup wizard.
   /// Reads false before [load] — an unloaded profile has never *said* no,
   /// and pushing the wizard on top of a cold start that has not yet decided
@@ -680,6 +697,33 @@ class AppSettings extends ChangeNotifier {
 
   /// The raw stored choice for "When will the Azaan play?".
   String get azaanTiming => _azaanTiming;
+
+  /// True when any prayer uses a "N min before" reminder - i.e. the user
+  /// tapped the "N min before" chip under "At my favourite masjid".
+  ///
+  /// A pre-prayer reminder already warns the user ahead of the calculated
+  /// (Awwal) time, so the Azaan itself is left to the favourite masjid's
+  /// Jamaat time - otherwise the user hears two Azaans for the same prayer.
+  bool get hasPrePrayerReminder => kNotifiablePrayers.any(
+        (String prayer) =>
+            _favModes[prayer] == kFavModeOffset && (_notifyOffsets[prayer] ?? -1) > 0,
+      );
+
+  /// The Azaan timings the user is allowed to pick.
+  ///
+  /// While a pre-prayer reminder is on, only "at my favourite masjid" is
+  /// left; without one, all four choices stay on offer.
+  List<String> get azaanTimingOptions => hasPrePrayerReminder
+      ? const <String>[kAzaanTimingJamaatOnly]
+      : kAzaanTimingOptions;
+
+  /// Keeps the stored Azaan timing in sync with the pre-prayer reminder rule.
+  void _applyAzaanTimingRule() {
+    if (!hasPrePrayerReminder) return;
+    if (_azaanTiming == kAzaanTimingJamaatOnly) return;
+    _azaanTiming = kAzaanTimingJamaatOnly;
+    _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), kAzaanTimingJamaatOnly));
+  }
 
   /// Whether the calculated (Awwal) reminders may be armed. With `none`
   /// selected both of these read false and every Azaan alarm is cancelled.
@@ -881,6 +925,7 @@ class AppSettings extends ChangeNotifier {
       _customLng = prefs.getDouble(_key(_kCustomLng));
       _customCity = prefs.getString(_key(_kCustomCity)) ?? '';
       _notificationsEnabled = prefs.getBool(_key(_kNotifMaster)) ?? true;
+      _prayerCardVisible = prefs.getBool(_key(_kPrayerCard)) ?? true;
       _onboarded = prefs.getBool(_key(_kOnboarded)) ?? false;
       _azanSound = prefs.getString(_key(_kAzan)) ?? 'makkah';
       // An unknown stored value would otherwise read as "no source at all",
@@ -915,6 +960,7 @@ class AppSettings extends ChangeNotifier {
       }
       _loadFavAlerts(prefs);
       _loaded = true;
+      _applyAzaanTimingRule();
     } catch (error) {
       debugPrint('Noor ▸ settings load failed: $error');
       _loaded = true;
@@ -1059,6 +1105,17 @@ class AppSettings extends ChangeNotifier {
     });
   }
 
+  /// Shows or hides the always-on prayer card.
+  ///
+  /// Nothing else is touched: the prayer reminders, the Azaan and the
+  /// favourite-masjid alerts keep working exactly as they did.
+  void setPrayerCardVisible(bool visible) {
+    if (_prayerCardVisible == visible) return;
+    _prayerCardVisible = visible;
+    notifyListeners();
+    _put((SharedPreferences p) => p.setBool(_key(_kPrayerCard), visible));
+  }
+
   void setNotificationsEnabled(bool enabled) {
     _notificationsEnabled = enabled;
     notifyListeners();
@@ -1077,6 +1134,7 @@ class AppSettings extends ChangeNotifier {
 
   void setNotifyOffset(String prayer, int minutes) {
     _notifyOffsets[prayer] = minutes;
+    _applyAzaanTimingRule();
     notifyListeners();
     _put((SharedPreferences p) => p.setInt(_key('notify_$prayer'), minutes));
   }
@@ -1090,6 +1148,7 @@ class AppSettings extends ChangeNotifier {
   void setFavMode(String prayer, String mode) {
     if (mode != kFavModeAt && mode != kFavModeOffset) return;
     _favModes[prayer] = mode;
+    _applyAzaanTimingRule();
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key('favmode_$prayer'), mode));
   }
@@ -1113,6 +1172,7 @@ class AppSettings extends ChangeNotifier {
   void setAzaanTiming(String key) {
     if (!kAzaanTimingOptions.contains(key)) return;
     _azaanTiming = key;
+    _applyAzaanTimingRule();
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), key));
   }
@@ -1145,6 +1205,7 @@ class AppSettings extends ChangeNotifier {
     _hijriAdjustment = defaults.hijriAdjustment;
     _azanSound = defaults.azanSound;
     _azaanTiming = defaults.azaanTiming;
+    _applyAzaanTimingRule();
     _readingLang = defaults.readingLanguage;
     _notificationsEnabled = defaults.notificationsEnabled;
     for (final String prayer in kNotifiablePrayers) {

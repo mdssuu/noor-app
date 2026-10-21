@@ -67,6 +67,25 @@ object LockScreenNotifier {
      * never throws — a card that misses one refresh is a few hours stale,
      * and being stale beats an exception taking a broadcast path down.
      */
+    /**
+     * Takes the lock-screen card down.
+     *
+     * The pending flip alarm has to go with it, or the card would
+     * come back by itself at the next prayer.
+     */
+    fun clear(context: Context) {
+        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        val pending = PendingIntent.getBroadcast(
+            context,
+            FLIP_REQUEST,
+            Intent(context, NextFlipReceiver::class.java).setAction(FLIP_ACTION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager?.cancel(pending)
+    }
+
     fun refresh(context: Context) {
         try {
             val raw = context
