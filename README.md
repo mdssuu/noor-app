@@ -60,6 +60,19 @@ Everything lives in one file: [`lib/main.dart`](lib/main.dart).
   case the channel cannot be heard — so never twice, never not at all.
   Settings offers the selector, a **Test Azaan** button, and the exact-alarm +
   battery-optimisation prompts are raised once on first open.
+- **The day at a glance** — the sun's own path across the day drawn as a
+  curve from **sunrise to sunset**, with the four times the boards print
+  under the five (Ishraq, Chasht, Zawal, Tahajjud) pinned on it, the
+  daylight length in the corner, and a dot showing where the clock stands
+  right now. Sunset used to be computed every day and thrown away; it is
+  now printed where the reader can see it.
+- **Hijri calendar** — a whole Hijri month as a grid with **both**
+  calendars on every cell, the fixed occasions (Ashura, Shab-e-Barat, the
+  two Eids…) marked and dated, the next occasion counted down, and the
+  prayer times of **any** day the reader taps — calculated for the same
+  place the Home card uses. Tap the date under the greeting, or the
+  **Hijri calendar** row on the Profile tab. The month is navigated by
+  month, so “next” always lands on the 1st.
 - **Owner's remote config** — one Firestore document (`app_config/general`)
   decides what every phone opens on and looks like: new-user defaults (method,
   madhab, minutes-before, clip, time format, Hijri offset, language), the

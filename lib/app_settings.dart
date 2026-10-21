@@ -398,7 +398,12 @@ class LocalPrayerTimes {
     required this.fajrTomorrow,
   });
 
-  /// `fajr`, `sunrise`, `dhuhr`, `asr`, `maghrib`, `isha` → local `DateTime`.
+  /// `fajr`, `sunrise`, `dhuhr`, `asr`, `maghrib`, `isha`, `sunset` → local
+  /// `DateTime`.
+  ///
+  /// `sunset` is the sun's own going-down, not a prayer: Maghrib is the
+  /// prayer that opens at it, and this is the marker the Home's day-strip
+  /// prints beside the sunrise.
   final Map<String, DateTime> times;
 
   /// Next day's Fajr, for the "past Isha" countdown rollover.
@@ -1218,6 +1223,10 @@ class AppSettings extends ChangeNotifier {
       'asr': localisePrayerTime(raw.asr, date),
       'maghrib': localisePrayerTime(raw.maghrib, date),
       'isha': localisePrayerTime(raw.isha, date),
+      // The sun's own going-down, which the boards print under the five as
+      // "Sunset" and which the Home's day-strip shows beside the sunrise.
+      // It is *not* a prayer — Maghrib is the prayer that opens at it.
+      'sunset': localisePrayerTime(raw.sunset, date),
     };
 
     final DateTime tomorrow = DateTime(date.year, date.month, date.day + 1);

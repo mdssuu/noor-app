@@ -55,6 +55,7 @@ import 'manual_add_screen.dart';
 import 'place_details_screen.dart';
 import 'reading_card.dart';
 import 'screens/about_screen.dart';
+import 'screens/hijri_calendar_screen.dart';
 import 'screens/home_extras.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/qibla_screen.dart';
@@ -65,6 +66,7 @@ import 'services/azaan_alarm.dart';
 import 'services/app_config.dart';
 import 'services/azan_player.dart';
 import 'services/gemini_ocr_service.dart';
+import 'services/islamic_calendar.dart';
 import 'services/places_service.dart';
 import 'services/prayer_tracker.dart';
 import 'services/prayer_widget.dart';
@@ -5115,13 +5117,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     color: NoorColors.ink,
                   ),
                 ),
-                Text(
-                  _greetingSub(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    fontSize: 11,
-                    color: NoorColors.muted,
+                // The date under the greeting is the door to the Hijri
+                // calendar: the app had the whole month grid built and
+                // never showed it, while the onboarding page promised it.
+                InkWell(
+                  onTap: _openHijriCalendar,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: <Widget>[
+                        const Icon(Icons.calendar_month_outlined,
+                            size: 12, color: NoorColors.emeraldDeep),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            _greetingSub(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(
+                              fontSize: 11,
+                              color: NoorColors.muted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -5163,13 +5184,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Under the greeting: what today is, in both calendars when the Hijri one
   /// is available.
+  ///
+  /// The conversion is [NoorHijri]'s, not a second one written here: the
+  /// calendar screen and the Ramadan banner read the same table, so the
+  /// date under the greeting and the date in the grid can never disagree.
   String _greetingSub() {
     final DateTime now = DateTime.now();
     String hijri = '';
     try {
-      final DateTime shifted = DateTime(now.year, now.month, now.day)
-          .add(Duration(days: AppSettings.instance.hijriAdjustment));
-      final HijriCalendar h = HijriCalendar.fromDate(shifted);
+      final HijriCalendar h = NoorHijri.hijriOf(
+        now,
+        adjustment: AppSettings.instance.hijriAdjustment,
+      );
       hijri = '${h.hDay} ${h.getLongMonthName()} ${h.hYear}';
     } catch (_) {
       hijri = '';
@@ -5230,6 +5256,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(builder: (_) => screen),
     );
+  }
+
+  /// The Hijri calendar: the month grid with both calendars on every cell,
+  /// the occasions that fall on it, and the times of any day the reader
+  /// taps — calculated for the same place the Home card uses.
+  void _openHijriCalendar() {
+    _openTool(HijriCalendarScreen(
+      latitude:
+          _position?.latitude ?? LocationService.fallbackAnchor.x,
+      longitude:
+          _position?.longitude ?? LocationService.fallbackAnchor.y,
+    ));
   }
 
   Widget _homeBody() => Expanded(
@@ -5300,9 +5338,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
             const SizedBox(height: 14),
 
-            // The four times the boards print under the five — Ishraq,
-            // Chasht, Zawal, Tahajjud — from the same calculated day.
-            NaflTimingsCard(
+            // The sun's own path across the day — sunrise to sunset, with
+            // the nafl times the boards print under the five pinned on it.
+            DayArcCard(
               latitude:
                   _position?.latitude ?? LocationService.fallbackAnchor.x,
               longitude:
@@ -5727,6 +5765,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // prayer board" and "Add a masjid by hand". Both moved to the
                 // "+" on the Nearby tab, so the profile is only about the
                 // reader again.
+                Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.25)),
+                _ProfileRow(
+                  icon: Icons.calendar_month_outlined,
+                  title: 'Hijri calendar',
+                  subtitle: 'The month grid, the occasions and each day\'s times',
+                  onTap: _openHijriCalendar,
+                ),
                 Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.25)),
                 _ProfileRow(
                   icon: Icons.info_outline,

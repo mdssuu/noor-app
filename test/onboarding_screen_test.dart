@@ -14,20 +14,20 @@ void main() {
     await AppSettings.instance.load();
   });
 
-  testWidgets('the nafl card says all four times and the rule behind each',
+  testWidgets('the day card says all four times and the rule behind each',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: ListView(
             children: <Widget>[
-              NaflTimingsCard(latitude: 19.0760, longitude: 72.8777),
+              DayArcCard(latitude: 19.0760, longitude: 72.8777),
             ],
           ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     expect(find.text('Ishraq'), findsOneWidget);
     expect(find.text('Chasht'), findsOneWidget);
@@ -36,6 +36,17 @@ void main() {
     // The rules are printed, not implied — this is fiqh, not decoration.
     expect(find.textContaining('quarter of the way'), findsOneWidget);
     expect(find.textContaining('last third of the night'), findsOneWidget);
+
+    // The card now carries the sun's own path as well: both ends of the
+    // day and how long the sun was up.
+    expect(find.text('The day at a glance'), findsOneWidget);
+    expect(find.text('Sunrise'), findsOneWidget);
+    expect(find.text('Sunset'), findsOneWidget);
+    expect(find.textContaining('of daylight'), findsOneWidget);
+
+    // Unmount it — the card runs a minute ticker, and a widget test fails
+    // at teardown if a timer outlives it.
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('the hero’s row offers the three doors',
