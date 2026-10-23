@@ -726,7 +726,20 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ],
                       ),
                     ),
-                    if (_settings.notifyOnFor(key))
+                    // One row per prayer, matching the "When will the Azaan
+                    // play?" mode above it - the two rows the Settings used
+                    // to show together read as two disconnected switches,
+                    // and in the default "Only at Jamaat time" mode the
+                    // Awwal row could light up while changing nothing.
+                    //
+                    //  * "Only at Jamaat time": the SAME five chips, where
+                    //    "At time" means the favourite masjid's Jamaat
+                    //    moment and "N min" means N minutes before it.
+                    //  * "Only at Awwal time": just the Awwal chips.
+                    //  * "At both times" / "Off": both rows, each with its
+                    //    own controls, so every source stays configurable.
+                    if (_settings.notifyOnFor(key) &&
+                        _settings.azaanTiming != kAzaanTimingJamaatOnly)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(39, 4, 12, 10),
                         child: Row(
@@ -750,43 +763,84 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ],
                         ),
                       ),
-                    // Same prayer, second source: a starred masjid's own
-                    // Jamaat column instead of the calculated time above.
-                    if (_settings.notifyOnFor(key))
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(39, 0, 12, 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              'At my favourite masjid',
-                              style: GoogleFonts.outfit(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: NoorColors.onGlassMuted,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: <Widget>[
+                    // Jamaat-only: the single row. "At time" = the Jamaat
+                    // moment itself; "N min" stores the offset and moves the
+                    // prayer onto the Jamaat source. The second source's own
+                    // caption row stays for the modes that still show both.
+                    if (_settings.notifyOnFor(key) &&
+                        _settings.azaanTiming != kAzaanTimingAwwalOnly)
+                      if (_settings.azaanTiming == kAzaanTimingJamaatOnly)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(39, 4, 12, 14),
+                          child: Row(
+                            children: <Widget>[
+                              for (final MapEntry<int, int> choice
+                                  in _offsetChoices(key).asMap().entries) ...<Widget>[
+                                if (choice.key > 0) const SizedBox(width: 6),
                                 _option(
-                                  label: 'At Jamaat time',
-                                  selected: _settings.favModeFor(key) == kFavModeAt,
-                                  onTap: () => _settings.setFavMode(key, kFavModeAt),
-                                ),
-                                const SizedBox(width: 6),
-                                _option(
-                                  label: notifyOffsetLabel(_settings.notifyOffsetFor(key)),
-                                  selected:
-                                      _settings.favModeFor(key) == kFavModeOffset,
-                                  onTap: () =>
-                                      _settings.setFavMode(key, kFavModeOffset),
+                                  label: notifyOffsetChipLabel(choice.value),
+                                  selected: choice.value < 0
+                                      ? _settings.favModeFor(key) == kFavModeAt ||
+                                          _settings.notifyOffsetFor(key) < 0
+                                      : _settings.favModeFor(key) ==
+                                              kFavModeOffset &&
+                                          _settings.notifyOffsetFor(key) ==
+                                              choice.value,
+                                  onTap: () {
+                                    if (choice.value < 0) {
+                                      _settings.setFavMode(key, kFavModeAt);
+                                    } else {
+                                      _settings.setNotifyOffset(
+                                          key, choice.value);
+                                      _settings.setFavMode(
+                                          key, kFavModeOffset);
+                                    }
+                                  },
                                 ),
                               ],
-                            ),
-                          ],
+                            ],
+                          ),
+                        )
+                      else
+                        // Same prayer, second source: a starred masjid's own
+                        // Jamaat column instead of the calculated time above.
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(39, 0, 12, 14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                'At my favourite masjid',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: NoorColors.onGlassMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: <Widget>[
+                                  _option(
+                                    label: 'At Jamaat time',
+                                    selected:
+                                        _settings.favModeFor(key) == kFavModeAt,
+                                    onTap: () =>
+                                        _settings.setFavMode(key, kFavModeAt),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _option(
+                                    label: notifyOffsetLabel(
+                                        _settings.notifyOffsetFor(key)),
+                                    selected: _settings.favModeFor(key) ==
+                                        kFavModeOffset,
+                                    onTap: () =>
+                                        _settings.setFavMode(key, kFavModeOffset),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
                   ],
                 ],
                 if (!_settings.notificationsEnabled)
