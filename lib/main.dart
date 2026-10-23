@@ -2056,6 +2056,39 @@ class NotificationService {
     return global.key == 'silent' ? azanSoundByKey('makkah') : global;
   }
 
+  /// Whether [prayer]'s recitation card *is* its notification — so the
+  /// banner must not be scheduled at all.
+  ///
+  /// With no advance notice the banner lands on the prayer time itself, the
+  /// same minute `AzaanPlaybackService` rises with "Azaan playing" — two
+  /// cards for one prayer, one of them a duplicate of the other. Something
+  /// has to give, and it cannot be the playback card: a foreground service
+  /// may not run without one, and it carries the only STOP AZAN handle that
+  /// reaches a locked phone. So on Android, where that player exists, an
+  /// armed clip stands in for the banner whenever the two would fire
+  /// together ([minutesBefore] ≤ 0 means "at the prayer time").
+  ///
+  /// The banner still arms everywhere the card cannot speak for it:
+  ///
+  ///  * an advance notice — "Fajr in 10 minutes" is its own event, sent
+  ///    minutes before the clip starts, so the two never collide;
+  ///  * a bell on `silent` — no `androidRaw`, no recitation, and the banner
+  ///    is the only thing that will appear;
+  ///  * off Android — there is no Kotlin player, so the banner is the only
+  ///    audible path iOS and the desktop have.
+  ///
+  /// [android] exists for the test host, which is never Android: production
+  /// callers take the real answer from [Platform].
+  @visibleForTesting
+  static bool recitationIsTheCard(
+    AzanSound sound,
+    int minutesBefore, {
+    bool? android,
+  }) =>
+      (android ?? Platform.isAndroid) &&
+      sound.androidRaw != null &&
+      minutesBefore <= 0;
+
   static AndroidNotificationChannel _azanChannel() => const AndroidNotificationChannel(
         _azanChannelId,
         _azanChannelName,
@@ -2378,24 +2411,15 @@ class NotificationService {
         fire.minute,
       );
 
-      try {
-        await _plugin.zonedSchedule(
-          id: _azanId(key),
-          scheduledDate: when,
-          title: '${prayerByKey(key).label} • ${settings.format(prayerTime)}',
-          body: minutesBefore < 0
-              ? 'It is time for ${prayerByKey(key).label}.'
-              : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.',
-          notificationDetails: _azanDetailsFor(key),
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          matchDateTimeComponents: DateTimeComponents.time,
-          payload: 'azan:$key',
-        );
-        scheduled++;
-      } catch (error) {
-        // Android 14+ can revoke SCHEDULE_EXACT_ALARM — fall back to the
-        // inexact alarm rather than silently never firing.
-        debugPrint('Noor ▸ exact schedule failed for $key, retrying inexact: $error');
+      // One prayer must produce one notification. Which card speaks for it
+      // is decided before anything is armed: if the recitation rises on
+      // this very minute, that card is the reminder and the banner is
+      // skipped rather than stacked behind it.
+      final AzanSound sound = _bellSound(key);
+      if (recitationIsTheCard(sound, minutesBefore)) {
+        debugPrint('Azan ▸ $key: recitation card stands in for the banner '
+            '(both land on the prayer time) — one prayer, one notification');
+      } else {
         try {
           await _plugin.zonedSchedule(
             id: _azanId(key),
@@ -2405,30 +2429,48 @@ class NotificationService {
                 ? 'It is time for ${prayerByKey(key).label}.'
                 : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.',
             notificationDetails: _azanDetailsFor(key),
-            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             matchDateTimeComponents: DateTimeComponents.time,
             payload: 'azan:$key',
           );
           scheduled++;
-        } catch (secondError) {
-          debugPrint('Noor ▸ azan schedule failed for $key: $secondError');
+        } catch (error) {
+          // Android 14+ can revoke SCHEDULE_EXACT_ALARM — fall back to the
+          // inexact alarm rather than silently never firing.
+          debugPrint('Noor ▸ exact schedule failed for $key, retrying inexact: $error');
+          try {
+            await _plugin.zonedSchedule(
+              id: _azanId(key),
+              scheduledDate: when,
+              title: '${prayerByKey(key).label} • ${settings.format(prayerTime)}',
+              body: minutesBefore < 0
+                  ? 'It is time for ${prayerByKey(key).label}.'
+                  : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.',
+              notificationDetails: _azanDetailsFor(key),
+              androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+              matchDateTimeComponents: DateTimeComponents.time,
+              payload: 'azan:$key',
+            );
+            scheduled++;
+          } catch (secondError) {
+            debugPrint('Noor ▸ azan schedule failed for $key: $secondError');
+          }
         }
       }
 
-      // The banner and the recitation are two different instants.
+      // The banner and the recitation are two different instants whenever an
+      // advance notice is set: `fire` is the prayer time less that notice
+      // and the banner fires there, while the recitation belongs to the
+      // prayer time itself — "Fajr in 10 minutes" is a note, not an Azaan,
+      // and playing the whole clip at the offset is what made the phone
+      // recite minutes before any timetable said so. Both share this
+      // prayer's id, so one `cancelAzan()` still retires the pair.
       //
-      // `fire` is the prayer time less any advance notice, and the banner
-      // fires there. The recitation belongs to the prayer time itself:
-      // "Fajr in 10 minutes" is a note, not an Azaan, and playing the whole
-      // clip at the offset is what made the phone recite minutes before any
-      // timetable said so — with notifications muted as well, since the
-      // receiver is not gated on the ringer. Both share this prayer's id, so
-      // one `cancelAzan()` still retires the pair.
-      //
-      // And the clip itself is this *prayer's* bell now: a bell left on
-      // `silent` hands back a sound with no `androidRaw`, so no twin arms
-      // at all — the banner alone is what that state promised.
-      final AzanSound sound = _bellSound(key);
+      // They are one and the same instant when no notice is set — which is
+      // when [recitationIsTheCard] has held the banner back above, leaving
+      // exactly one card. And the clip itself is this *prayer's* bell: a
+      // bell left on `silent` hands back a sound with no `androidRaw`, so no
+      // twin arms at all — the banner alone is what that state promised.
       if (sound.androidRaw != null) {
         await AzaanAlarm.schedule(
           id: _azanId(key),
@@ -2477,26 +2519,34 @@ class NotificationService {
     if (!kNotifiablePrayers.contains(key)) return;
     final DateTime at = DateTime.now().add(const Duration(minutes: 10));
 
-    try {
-      await _initTimeZone();
-      await _plugin.zonedSchedule(
-        id: _snoozeId,
-        scheduledDate: tz.TZDateTime.from(at, tz.local),
-        title: 'Snoozed • ${prayerByKey(key).label}',
-        body: 'Ten minutes back, as you asked.',
-        notificationDetails: _azanDetailsFor(key),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        // Tapping the snoozed copy does what the original did: play the clip.
-        payload: 'azan:$key',
-      );
-    } catch (error) {
-      debugPrint('Noor ▸ snooze banner failed: $error');
+    // The snoozed pair is decided the same way as the original: with the
+    // clip armed, the recitation card at +10 min *is* the snoozed alert, so
+    // no second banner is queued to arrive beside it.
+    final AzanSound sound = _bellSound(key);
+    if (recitationIsTheCard(sound, 0)) {
+      debugPrint('Azan ▸ snoozed $key: recitation card stands in for the '
+          'banner — one prayer, one notification');
+    } else {
+      try {
+        await _initTimeZone();
+        await _plugin.zonedSchedule(
+          id: _snoozeId,
+          scheduledDate: tz.TZDateTime.from(at, tz.local),
+          title: 'Snoozed • ${prayerByKey(key).label}',
+          body: 'Ten minutes back, as you asked.',
+          notificationDetails: _azanDetailsFor(key),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          // Tapping the snoozed copy does what the original did: play the clip.
+          payload: 'azan:$key',
+        );
+      } catch (error) {
+        debugPrint('Noor ▸ snooze banner failed: $error');
+      }
     }
 
     // The same per-prayer answer the original alarm used: a bell on
     // `silent` snoozes into silence too, never into a recitation it was
     // switched away from.
-    final AzanSound sound = _bellSound(key);
     if (sound.androidRaw == null) return; // no recitation this bell carries — banner only
     try {
       await AzaanAlarm.schedule(
@@ -2652,36 +2702,46 @@ class NotificationService {
           fire = fire.add(const Duration(days: 1));
         }
 
-        try {
-          await _plugin.zonedSchedule(
-            id: base + p,
-            scheduledDate: tz.TZDateTime(
-              tz.local,
-              fire.year,
-              fire.month,
-              fire.day,
-              fire.hour,
-              fire.minute,
-            ),
-            title: '${prayerByKey(key).label} • ${settings.format(atTime)}',
-            body: minutesBefore == 0
-                ? 'Jamaat at $where.'
-                : '${prayerByKey(key).label} in $minutesBefore minutes at $where.',
-            notificationDetails: _azanDetailsFor(key),
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-            matchDateTimeComponents: DateTimeComponents.time,
-            payload: 'azan:$key',
-          );
-          armed++;
-        } catch (error) {
-          debugPrint('Noor ▸ favourite alert failed for $where/$key: $error');
+        // Same one-prayer-one-card rule as the calculated reminders: when
+        // the Jamaat recitation rises on this very minute, its card is the
+        // alert and the banner stays unscheduled behind it.
+        final AzanSound sound = _bellSound(key);
+        if (recitationIsTheCard(sound, minutesBefore)) {
+          debugPrint('Azan ▸ $where/$key: recitation card stands in for the '
+              'banner — one prayer, one notification');
+        } else {
+          try {
+            await _plugin.zonedSchedule(
+              id: base + p,
+              scheduledDate: tz.TZDateTime(
+                tz.local,
+                fire.year,
+                fire.month,
+                fire.day,
+                fire.hour,
+                fire.minute,
+              ),
+              title: '${prayerByKey(key).label} • ${settings.format(atTime)}',
+              body: minutesBefore == 0
+                  ? 'Jamaat at $where.'
+                  : '${prayerByKey(key).label} in $minutesBefore minutes at $where.',
+              notificationDetails: _azanDetailsFor(key),
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              matchDateTimeComponents: DateTimeComponents.time,
+              payload: 'azan:$key',
+            );
+            armed++;
+          } catch (error) {
+            debugPrint('Noor ▸ favourite alert failed for $where/$key: $error');
+          }
         }
 
-        // Same split as the calculated reminders: the banner fires at `fire`
-        // (Jamaat less any advance notice), the recitation at the Jamaat time
-        // itself. One id retires both — and it is this prayer's own bell
-        // that decides whether the recitation arms at all.
-        final AzanSound sound = _bellSound(key);
+        // The split holds whenever an advance notice is set: the banner
+        // fires at `fire` (Jamaat less that notice), the recitation at the
+        // Jamaat time itself — and where there is no notice, the banner was
+        // held back above because this card already speaks. One id retires
+        // both regardless — and it is this prayer's own bell that decides
+        // whether the recitation arms at all.
         if (sound.androidRaw != null) {
           await AzaanAlarm.schedule(
             id: base + p,
@@ -2812,7 +2872,10 @@ class NotificationService {
   /// to swipe the app away first, so it only lands if Android is willing to
   /// wake a closed app — precisely the condition every real prayer time has
   /// to survive, and the one a "Test Azaan" button can never reach because
-  /// that plays in-process with the app open.
+  /// that plays in-process with the app open. What lands is what a prayer
+  /// now shows: the recitation card when the clip is armed — one card, the
+  /// same [recitationIsTheCard] rule Fajr obeys — and the banner only for
+  /// a bell with no clip behind it.
   static Future<void> testReminder() async {
     try {
       await applyAzanChannel();
@@ -2832,27 +2895,37 @@ class NotificationService {
       await _plugin.cancel(id: _testReminderId);
       final tz.TZDateTime when =
           tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
-      try {
-        await _plugin.zonedSchedule(
-          id: _testReminderId,
-          scheduledDate: when,
-          title: 'Closed-app test',
-          body: 'This fired with Noor shut — exactly what a prayer time does.',
-          notificationDetails: _azanDetails(),
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        );
-      } catch (error) {
-        // Android 14+ can revoke SCHEDULE_EXACT_ALARM; an inexact minute is
-        // still a perfectly good answer to "can my phone wake the app?".
-        debugPrint('Noor ▸ exact test reminder failed, retrying inexact: $error');
-        await _plugin.zonedSchedule(
-          id: _testReminderId,
-          scheduledDate: when,
-          title: 'Closed-app test',
-          body: 'This fired with Noor shut — exactly what a prayer time does.',
-          notificationDetails: _azanDetails(),
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        );
+      final AzanSound sound = _azanSound;
+      // The probe shows what a prayer shows — one card. Where the clip will
+      // speak for it, the banner is held back exactly as it is held back at
+      // Fajr; a probe firing two cards would be demonstrating a screen the
+      // reader no longer gets.
+      if (recitationIsTheCard(sound, 0)) {
+        debugPrint('Noor ▸ closed-app test: recitation card stands in for '
+            'the banner — one test, one notification');
+      } else {
+        try {
+          await _plugin.zonedSchedule(
+            id: _testReminderId,
+            scheduledDate: when,
+            title: 'Closed-app test',
+            body: 'This fired with Noor shut — exactly what a prayer time does.',
+            notificationDetails: _azanDetails(),
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          );
+        } catch (error) {
+          // Android 14+ can revoke SCHEDULE_EXACT_ALARM; an inexact minute is
+          // still a perfectly good answer to "can my phone wake the app?".
+          debugPrint('Noor ▸ exact test reminder failed, retrying inexact: $error');
+          await _plugin.zonedSchedule(
+            id: _testReminderId,
+            scheduledDate: when,
+            title: 'Closed-app test',
+            body: 'This fired with Noor shut — exactly what a prayer time does.',
+            notificationDetails: _azanDetails(),
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          );
+        }
       }
 
       // The recitation at the same minute, on the same id. The banner alone
@@ -2860,7 +2933,6 @@ class NotificationService {
       // the clip is the alarm-stream player's job, and this is the one button
       // that puts that exact path to work with the app shut.
       await AzaanAlarm.cancel(_testReminderId);
-      final AzanSound sound = _azanSound;
       if (sound.androidRaw != null) {
         await AzaanAlarm.schedule(
           id: _testReminderId,
