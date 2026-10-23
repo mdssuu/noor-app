@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Noor</string>
+    <!-- Shown in the launcher's widget picker, under the preview. -->
+    <string name="widget_description">Today\'s prayer times and the next one at a glance.</string>
+</resources>

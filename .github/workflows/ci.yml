@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+# Ek hi branch par tez-tez push karne par purane runs cancel ho jaayenge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# GitHub ke runners UTC par chalte hain, jabki prayer-time logic local time
+# maanta hai. Bina TZ ke Fajr raat 23:49 nikalta hai aur 9 widget tests gir
+# jaate hain jo laptop par pass hote hain.
+env:
+  TZ: Asia/Kolkata
+
+jobs:
+  analyze-and-test:
+    name: Analyze & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Process-level TZ Dart/Dart packages ke liye kaafi nahi hota - OS clock
+      # bhi IST par honi chahiye.
+      - name: Set runner timezone
+        run: sudo timedatectl set-timezone Asia/Kolkata
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    needs: analyze-and-test
+    steps:
+      # Runner image me ~50 GB preinstalled tools (dotnet, ghc, swift, NDK...)
+      # hote hain jo is build ke kaam ke nahi. Bina free kiye Gradle build
+      # "No space left on device" par mar jaata tha - is liye pehle space
+      # free karte hain, phir build karte hain.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet \
+            /usr/local/share/boost \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/local/share/vcpkg \
+            /usr/local/share/miniconda \
+            /usr/local/.ghcup \
+            /opt/ghc \
+            /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/julia* \
+            /usr/local/lib/android/sdk/ndk* \
+            /usr/local/lib/android/sdk/cmake \
+            /usr/local/lib/android/sdk/extras \
+            /usr/local/lib/android/sdk/sources
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Runner par RAM ~8 GB hai. Debug build R8 nahi chalata, is liye 3 GB
+      # heap kaafi hai - zyada nahi, warna daemon OOM ho jaata hai.
+      - name: Cap Gradle memory
+        run: |
+          sed -i 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=256m/' android/gradle.properties
+          echo "org.gradle.workers.max=2" >> android/gradle.properties
+          echo "--- gradle.properties used by CI ---"
+          cat android/gradle.properties
+
+      # Sirf asli phone wali ABIs (arm + arm64). x86_64 sirf emulator ke liye
+      # hai - use chhodne se native libs aur disk dono bachte hain.
+      - name: Build debug APK
+        run: flutter build apk --debug --target-platform android-arm,android-arm64
+
+      # Build fail hone par asli wajah API se kabhi-kabhi nahi milti (job log 404).
+      # Isliye runner ki haalat workflow khud likh deta hai.
+      - name: Diagnose a failed build
+        if: failure()
+        run: |
+          echo "=== DISK (kya space khatam?) ==="
+          df -h /
+          echo ""
+          echo "=== SABSE BADE FOLDERS (space kahan gaya?) ==="
+          sudo du -sh /usr/share /usr/local /opt /home/runner 2>/dev/null | sort -h
+          echo ""
+          echo "=== MEMORY (kya OOM hua?) ==="
+          free -m
+          echo ""
+          echo "=== android/gradle.properties actually used ==="
+          cat android/gradle.properties
+          echo ""
+          echo "=== Android SDK ==="
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME" 2>/dev/null || true
+          echo ""
+          echo "=== build/ ==="
+          du -sh build 2>/dev/null || true
+          echo ""
+          echo "=== gradle-wrapper.properties ==="
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noor-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 30

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The very first thing the OS draws: the Noor logo on white, sized from
+     the image's own pixel dimensions (432px wide, density-independent), so
+     every API level that can read a bitmap gets the same brand page. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/white" />
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/noor_splash_logo" />
+    </item>
+</layer-list>

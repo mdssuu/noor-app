@@ -1,0 +1,199 @@
+name: Release APK
+
+# Har push par release APK banta hai, aur har push par GitHub ka "Latest APK
+# (master)" release bhi update hota hai. Isse phone par hamesha latest APK
+# milti hai - bina kisi tag ka intezaar kiye.
+#
+#   - master push  -> rolling release: releases/tag/latest  (APK hamesha latest)
+#   - tag "v1.5.2" -> us version ka official release + release notes
+#   - manual run   -> sirf Actions artifact
+on:
+  push:
+    branches: [ master ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Master push me purana build cancel ho jata hai (minutes bachte hain).
+  # Tag release kabhi cancel nahi hota - woh ek official release hai.
+  cancel-in-progress: ${{ github.ref == 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # Runner image me ~50 GB preinstalled tools hote hain (dotnet, ghc, swift,
+      # NDK...) jo is build ke kaam ke nahi hain. Bina free kiye Flutter ka
+      # Gradle build "No space left on device" par mar jaata hai - yahi wajah
+      # hai ki pehle APK kabhi bante hi nahi the.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet \
+            /usr/local/share/boost \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/local/share/vcpkg \
+            /usr/local/share/miniconda \
+            /usr/local/.ghcup \
+            /opt/ghc \
+            /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/julia* \
+            /usr/local/lib/android/sdk/ndk* \
+            /usr/local/lib/android/sdk/cmake \
+            /usr/local/lib/android/sdk/extras \
+            /usr/local/lib/android/sdk/sources
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Runner par RAM ~8 GB hai. R8 (release build ka minifier) heap ke saath
+      # chalta hai, is liye 3 GB de rahe hain - zyada nahi, warna OOM ho jata hai.
+      - name: Cap Gradle memory
+        run: |
+          sed -i 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=256m/' android/gradle.properties
+          echo "org.gradle.workers.max=2" >> android/gradle.properties
+          cat android/gradle.properties
+
+      # Sirf wahi ABIs jo asli phone use karte hain (arm + arm64). x86_64
+      # emulator ke liye hai - use chhodne se native libs aadhi se bhi kam
+      # hoti hain aur build disk par fail hona nahi chahiye.
+      - name: Build release APK
+        run: flutter build apk --release --target-platform android-arm,android-arm64
+
+      - name: Name the APK and check its signature
+        run: |
+          VERSION=$(grep -E '^version:' pubspec.yaml | cut -d' ' -f2)
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::APK nahi bani - $APK missing hai"
+            exit 1
+          fi
+          if [ "$GITHUB_REF" = "refs/heads/master" ]; then
+            cp "$APK" build/app/outputs/flutter-apk/noor-masjid-time-latest.apk
+          else
+            cp "$APK" "build/app/outputs/flutter-apk/noor-masjid-time-${VERSION}.apk"
+          fi
+          ls -lh build/app/outputs/flutter-apk/
+          # Agar galat key se sign ho gayi to nayi APK purani ke upar install
+          # nahi hoti - abhi pakad lo, phone par pata chalne se behtar hai.
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" | head -20 || true
+          else
+            echo "apksigner nahi mila - signature check skip"
+          fi
+
+      # Tag push par: us version ka official release (release notes auto).
+      - name: Attach APK to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/noor-masjid-time-*.apk
+          generate_release_notes: true
+
+      # Master push par: rolling release. Iska matlab - Releases page par hamesha
+      # latest APK maujood, aur uska link kabhi nahi badalta:
+      #   https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk
+      - name: Update the rolling "Latest APK" release
+        if: github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest APK (master)
+          prerelease: true
+          files: build/app/outputs/flutter-apk/noor-masjid-time-latest.apk
+          body: |
+            Har `master` push par ye release update hoti hai.
+
+            **Download:** [noor-masjid-time-latest.apk](https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk)
+
+            Version: `${{ github.sha }}` se build hua hai
+            (commit: https://github.com/mdssuu/noor-app/commit/${{ github.sha }}).
+
+            Official versioned releases ke liye [tags](https://github.com/mdssuu/noor-app/releases) dekho.
+
+      # noor-apk = public distribution repo. Wahan wo APK jaati hai jo yahan
+      # ban chuki hai - dobara build nahi. Isse ek hi source of truth rehta
+      # hai: dono repo ka app hamesha ek jaisa, ek jaisi key se signed.
+      #
+      # Ek hi version par push = usi release ka APK replace hota hai, isliye
+      # Releases page par har push ke baad tarza APK hi dikhta hai.
+      # NOTE: is step ko chalne ke liye repo me "NOOR_PUBLISH_TOKEN" secret
+      # chahiye (ek GitHub PAT jo noor-apk me release bana sake). Secret na
+      # ho to ye step chhod diya jaata hai - APK yahan (noor-app) release me
+      # lag chuki hoti hai, build fail nahi hoti.
+      - name: Publish to the public repo (noor-apk)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.NOOR_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(grep -E '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)"
+          # Tag push = wahi tag noor-apk par. Master/branch push = us version
+          # ka release (1.6.0 -> v1.6), taaki ek hi version ka ek hi release rahe.
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v$(echo "$VERSION" | cut -d. -f1,2)"
+          fi
+          DEST="dist/noor-masjid-time-${TAG}.apk"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "$DEST"
+          ls -lh "$DEST"
+
+          if gh release view "$TAG" --repo mdssuu/noor-apk >/dev/null 2>&1; then
+            echo "Release $TAG pehle se hai - sirf APK replace ho rahi hai"
+          else
+            gh release create "$TAG" --repo mdssuu/noor-apk \
+              --title "$TAG" \
+              --notes "mdssuu/noor-app (version ${VERSION}, commit ${GITHUB_SHA}) se apne aap publish hua."
+          fi
+          gh release upload "$TAG" --repo mdssuu/noor-apk "$DEST" --clobber
+          echo "Published: https://github.com/mdssuu/noor-apk/releases/tag/$TAG"
+
+      # Manual run (bina tag ke) par: artifact ke roop me rakho.
+      - name: Upload APK artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noor-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      - name: Diagnose a failed build
+        if: failure()
+        run: |
+          echo "=== DISK ==="
+          df -h /
+          echo ""
+          echo "=== SABSE BADE FOLDERS (space kahan gaya?) ==="
+          sudo du -sh /usr/share /usr/local /opt /home/runner 2>/dev/null | sort -h
+          echo ""
+          echo "=== build/ ==="
+          du -sh build 2>/dev/null || true
+          echo ""
+          echo "=== APK mili ya nahi ==="
+          ls -lh build/app/outputs/flutter-apk/ 2>/dev/null || true

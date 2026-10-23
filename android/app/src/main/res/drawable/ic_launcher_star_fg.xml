@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eight-point star (the khatam), gold on emerald — the pattern that lines
+     so many masjid walls, reduced to the two shapes that make it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- A square and the same square turned 45°, laid over each other: where
+         they overlap they are one shape, and the eight corners that stick out
+         are the star. Non-zero fill joins them rather than cutting them. -->
+    <path
+        android:fillColor="#EFC15E"
+        android:pathData="M36,36 H72 V72 H36 Z" />
+    <path
+        android:fillColor="#EFC15E"
+        android:pathData="M54,29 L79,54 L54,79 L29,54 Z" />
+
+    <!-- The centre, punched back to the background's emerald. -->
+    <path
+        android:fillColor="#0F4C3A"
+        android:pathData="M54,45 A9,9 0 1 0 54,63 A9,9 0 1 0 54,45 Z" />
+</vector>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- White, to match the logo's own ground — the dome artwork carries its
+         white square right to the edge, so the margin blends into it. -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+
+    <!-- The three alternates the owner can switch to from the admin panel.
+         Each is a sky the foreground is cut out of, and they are deliberately
+         far apart: an icon that changes should look changed. -->
+    <color name="ic_launcher_background_night">#101A34</color>
+    <color name="ic_launcher_background_star">#0F4C3A</color>
+    <color name="ic_launcher_background_minaret">#0B3A44</color>
+</resources>

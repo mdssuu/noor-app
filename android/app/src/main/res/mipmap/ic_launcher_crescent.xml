@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The crescent icon for Android 7.x, which has no adaptive icons. The
+     picture is composed by hand instead — sky behind, art on top, inset to
+     roughly the circle an adaptive icon would have been masked to, so the
+     two halves of the version split do not look like two different apps. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/ic_launcher_background_night" />
+        </shape>
+    </item>
+    <item
+        android:drawable="@drawable/ic_launcher_crescent_fg"
+        android:top="10dp"
+        android:right="10dp"
+        android:bottom="10dp"
+        android:left="10dp" />
+</layer-list>

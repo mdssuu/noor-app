@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The lock-screen card's status-bar mark: the launcher crescent itself,
+     cut down to a 24dp canvas and flat white — a small icon is an alpha
+     mask the system tints, so colour inside it never renders. The moon is
+     one disc with a second disc cut out of it; `evenOdd` is what makes the
+     second path a hole rather than a second moon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M11.11,6.22 A5.78,5.78 0 1 0 11.11,17.78 A5.78,5.78 0 1 0 11.11,6.22 Z M13.78,5.33 A5.33,5.33 0 1 0 13.78,16 A5.33,5.33 0 1 0 13.78,5.33 Z" />
+</vector>

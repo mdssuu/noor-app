@@ -1,0 +1,68 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+*.iml
+.idea/
+.vscode/
+
+# Android
+android/.gradle/
+android/local.properties
+android/app/.cxx/
+android/gradle/
+*.keystore
+*.jks
+# NOTE: android/key.properties is deliberately NOT ignored (only a stray
+# key.properties in the repo root is). The release signing key has to be the
+# same on the laptop and on CI - a per-runner debug key means every new APK
+# refuses to install over the previous one ("signatures do not match").
+/key.properties
+
+# iOS / macOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+macos/Pods/
+
+# Platform generated
+**/GeneratedPluginRegistrant.*
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
+
+# NOTE: .env is intentionally committed. pubspec.yaml bundles it as an asset,
+# so without it in the repo every GitHub / Codespace build produces an app with
+# no GEMINI_API_KEY and silently falls back to on-device OCR. The key ships
+# inside the APK either way (see gemini_ocr_service.dart), so keeping it out of
+# git bought nothing and broke every off-laptop build.
+
+# --- Personal video-generation leftovers (app ka hissa NAHI) ---
+# Inhe kabhi git add mat karna - 1 GB tak ka junk git me chala jata hai.
+/clips/
+/audio/
+/preview/
+/style_a/
+/style_b/
+/china_dc/
+/__pycache__/
+final_audio.wav
+/sheet_a.jpg
+/sheet_b.jpg
+*.mp4
+build_video.py
+render_video.py
+gen_tts.py
+gen_tts.ps1
+make_audio.py
+timeline.py
+show_words.py
+list_voices.py
+check_voices.ps1
+check_uwp_voices.ps1

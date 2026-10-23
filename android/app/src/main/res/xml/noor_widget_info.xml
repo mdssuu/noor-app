@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Metadata the launcher's widget picker reads before the widget exists.
+     updatePeriodMillis is the minimum Android allows (30 min): each tick
+     re-renders the stored picture with the phone's current clock, which is
+     how the "next prayer" line moves all day without Dart running. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/noor_widget"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:previewImage="@mipmap/ic_launcher"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="2"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

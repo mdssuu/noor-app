@@ -1,0 +1,27 @@
+{
+  "name": "Noor - Flutter",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "bash .devcontainer/postCreate.sh",
+  "remoteEnv": {
+    "PATH": "/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${containerEnv:PATH}"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "Dart-Code.dart-code",
+        "Dart-Code.flutter"
+      ],
+      "settings": {
+        "dart.flutterSdkPath": "/opt/flutter",
+        "editor.formatOnSave": true,
+        "files.watcherExclude": {
+          "**/.dart_tool/**": true,
+          "**/build/**": true
+        }
+      }
+    }
+  }
+}

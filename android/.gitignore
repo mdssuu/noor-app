@@ -1,0 +1,20 @@
+gradle-wrapper.jar
+/.gradle
+/captures/
+/gradlew
+/gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+
+# Remember to never publicly share your keystore.
+# See https://flutter.dev/to/reference-keystore
+#
+# NOTE: key.properties aur noor-release.p12 is repo me COMMITED hain (repo
+# private hai). Reason: GitHub ka har runner apna naya debug key banata hai,
+# aur debug key se sign ki hui nayi APK purani APK ke upar install hi nahi
+# hoti ("signatures do not match"). Fixed release key se har release update
+# hota hai. Play Store jaise public store par daalne se pehle key rotate karo.
+#key.properties
+**/*.keystore
+**/*.jks

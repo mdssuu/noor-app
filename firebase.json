@@ -1,0 +1,28 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "noor-masjid-time",
+          "appId": "1:959638724457:android:9bf373330d42ee7d9867f8",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "noor-masjid-time",
+          "configurations": {
+            "android": "1:959638724457:android:68734ddef17a0e7f9867f8",
+            "ios": "1:959638724457:ios:631eae1e9d5f20709867f8",
+            "macos": "1:959638724457:ios:631eae1e9d5f20709867f8",
+            "web": "1:959638724457:web:308ce40f5d3cd9129867f8",
+            "windows": "1:959638724457:web:ee951f4be689b0419867f8"
+          }
+        }
+      }
+    }
+  }
+}
