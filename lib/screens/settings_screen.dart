@@ -657,8 +657,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                         _label('When will the Azaan play?'),
                         _hint(
                       _settings.hasPrePrayerReminder
-                          ? 'A pre-prayer reminder is on, so the Azaan plays only at your favourite masjid’s Jamaat time.'
-                          : 'One prayer can be announced twice — once at the calculated Awwal time and again at your favourite masjid’s Jamaat time. Pick how many times you want to hear the Azaan.'),
+                          ? 'A pre-prayer reminder is on, so the Azaan plays at your favourite masjid’s Jamaat time.'
+                          : 'The Azaan plays once per prayer, at your favourite masjid’s own Jamaat time.'),
                         DropdownButtonFormField<String>(
                           key: ValueKey(_settings.azaanTimingOptions.join('|')),
                           initialValue: _settings.azaanTimingOptions
