@@ -78,20 +78,40 @@ class AzanPlayer {
 
   /// Tapping the row that is already playing stops it; anything else stops
   /// the current clip and starts the new one.
+  ///
+  /// A preview always has something to play. "None (silent)" is the one row
+  /// with no clip of its own, and answering "nothing" to every question a
+  /// reader asks of it — the row's play icon, the "Test Azaan" button — is
+  /// what made that button look broken: it did not fail, it *declined*. So
+  /// the built-in clip stands in here, the same substitution [_bellSound]
+  /// makes for a bell left on azan under a silent profile. What the reminder
+  /// itself does with that profile is a separate question, answered by
+  /// [playSelected] and by the scheduler — not by a button whose whole job is
+  /// to be heard.
   Future<void> preview(String key) async {
     if (_playingKey == key) {
       await stop();
       return;
     }
     await stop();
-    await _start(key);
+    await _start(key, builtInFallback: true);
   }
 
-  Future<void> playSelected() => _start(AppSettings.instance.azanSound);
+  /// Replays the clip behind a reminder the reader tapped.
+  ///
+  /// Never with the built-in stand-in: a banner tapped on a silent profile is
+  /// a reminder that deliberately recited nothing, and answering it with an
+  /// Azan would invent noise the reader asked not to have. Silence is the
+  /// honest reply there — it is only the *test* that owes an answer.
+  Future<void> playSelected() =>
+      _start(AppSettings.instance.azanSound, builtInFallback: false);
 
-  Future<void> _start(String key) async {
-    final AzanSound? sound = _sound(key);
-    if (sound == null || key == 'silent') return;
+  Future<void> _start(String key, {required bool builtInFallback}) async {
+    final AzanSound? chosen = _sound(key);
+    if (chosen == null) return;
+    if (key == 'silent' && !builtInFallback) return;
+    final AzanSound sound =
+        key == 'silent' ? (_sound('makkah') ?? chosen) : chosen;
 
     // 1. The bundled clip on the alarm stream — the same file the notification
     //    channel carries, so a preview is an honest test of the reminder.

@@ -1070,7 +1070,25 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: GradientButton(
               label: _testPlaying ? 'Stop Azaan' : 'Test Azaan',
               icon: _testPlaying ? Icons.stop_circle_outlined : Icons.volume_up_outlined,
-              onPressed: () => AzanPlayer.instance.preview(_settings.azanSound),
+              onPressed: () {
+                // "None (silent)" has no clip to test, so the button plays the
+                // built-in one instead of answering nothing at all — but a
+                // reader who hears an Azan and does not know why would read
+                // that as the reminder coming on. Say which is which.
+                if (_settings.azanSound == 'silent') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      duration: const Duration(seconds: 6),
+                      content: Text(
+                        '“None (silent)” is selected, so your reminders stay '
+                        'silent — this is the built-in Azaan. Tap a clip above '
+                        'to make it the one that rings.',
+                      ),
+                    ),
+                  );
+                }
+                AzanPlayer.instance.preview(_settings.azanSound);
+              },
             ),
           ),
           Padding(
@@ -1081,7 +1099,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               'app closed, and at alarm volume when the phone is on silent. '
               '“Test Azaan” plays exactly that file at exactly that volume, and '
               'either volume key stops it while it runs. Choosing “None” leaves '
-              'the reminder as a silent vibration.',
+              'the reminder as a silent vibration, and “Test Azaan” then plays '
+              'the built-in one so the path can still be checked.',
               style: GoogleFonts.outfit(
                 fontSize: 11,
                 color: NoorColors.muted,

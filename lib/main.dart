@@ -2040,6 +2040,30 @@ class NotificationService {
   static const String _azanChannelDescription =
       'A reminder at each of the five daily prayer times';
 
+  /// The zawal banner's own channel, so each half can be silenced alone:
+  /// a reader who has had enough of prayer reminders still wants to know the
+  /// moment salah becomes prohibited, and one who wants that warning must not
+  /// have to keep the Azaan ringtone on to get it.
+  static const String _makruhChannelId = 'makruh_alerts';
+  static const String _makruhChannelName = 'Prohibited Time';
+  static const String _makruhChannelDescription =
+      'Alerts when the makruh (zawal) window opens — salah is prohibited until Dhuhr';
+
+  /// The banner is the only voice this alert has — there is no recitation
+  /// behind it, so the channel's own sound is the whole notification.
+  static const NotificationDetails _makruhDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      _makruhChannelId,
+      _makruhChannelName,
+      channelDescription: _makruhChannelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+      color: Color(0xFFB3261E),
+      enableVibration: true,
+    ),
+    iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
+  );
+
   static AzanSound get _azanSound => azanSoundByKey(AppSettings.instance.azanSound);
 
   /// The clip [prayer]'s own bell recites — the per-prayer half of the
@@ -2107,6 +2131,22 @@ class NotificationService {
 
   /// Notification ids 0..4 are reserved for the five Azan reminders.
   static int _azanId(String prayer) => kNotifiablePrayers.indexOf(prayer);
+
+  /// The one id the daily makruh (Zawal) banner owns.
+  ///
+  /// It sits clear of two ranges that are swept wholesale:
+  ///
+  ///  * **0..4** — [cancelAzan] retires the five Azaan reminders by hand on
+  ///    every pass, so an id in that block would be cancelled by the very
+  ///    refresh meant to re-arm it;
+  ///  * **[1000, 1000000000)** — `_rebuildFavouriteAlerts` clears that whole
+  ///    block on each reschedule, which is the same trap that swallowed the
+  ///    test reminder when it still sat at 791900.
+  ///
+  /// 5 is the first id clear of both, and far under the epoch-second ids
+  /// [show] hands out. Public only so a test can pin all of that down.
+  @visibleForTesting
+  static const int makruhId = 5;
 
   /// Favourite-masjid alerts are allocated from here upwards, ten ids per
   /// masjid so each of the five prayers keeps its own slot. Well clear of the
@@ -2211,6 +2251,30 @@ class NotificationService {
     }
   }
 
+  /// Makes sure the zawal channel exists before the first banner is armed.
+  ///
+  /// Idempotent — Android hands back the channel that is already there — so
+  /// calling it on every launch creates nothing twice. Unlike the Azaan one
+  /// this channel is never retired or rebuilt: its sound is the system's own,
+  /// frozen at creation or not, and there has never been a louder version of
+  /// it to outlive.
+  static Future<void> applyMakruhChannel() async {
+    final AndroidFlutterLocalNotificationsPlugin? android =
+        _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+    try {
+      await android.createNotificationChannel(const AndroidNotificationChannel(
+        _makruhChannelId,
+        _makruhChannelName,
+        description: _makruhChannelDescription,
+        importance: Importance.high,
+        enableVibration: true,
+      ));
+    } catch (error) {
+      debugPrint('Noor ▸ could not create the Prohibited Time channel: $error');
+    }
+  }
+
   static bool _tzReady = false;
 
   /// The device's UTC offset at the last schedule — the cheapest signal that
@@ -2274,6 +2338,7 @@ class NotificationService {
         _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(_channel);
     await applyAzanChannel();
+    await applyMakruhChannel();
     AzaanAlarm.install();
     // The fallback player's callbacks live on the same channel; registering
     // them here means a stop pressed during a recitation is answered even on
@@ -2362,6 +2427,23 @@ class NotificationService {
       return;
     }
 
+    // A user who picked a custom city — or simply has GPS off — *sees* times
+    // computed from that city: every display path applies `customLatitude`.
+    // Scheduling from the raw coordinate instead is how a board reading
+    // "Fajr 5:12" produced a reminder at 5:17, silently, after every restart.
+    final double effectiveLatitude = settings.customLatitude ?? latitude;
+    final double effectiveLongitude = settings.customLongitude ?? longitude;
+    final LocalPrayerTimes day =
+        settings.compute(latitude: effectiveLatitude, longitude: effectiveLongitude);
+    final DateTime now = DateTime.now();
+
+    // The zawal banner answers the master switch and nothing else. It is not
+    // an Azaan: "Only at Jamaat time" speaks about when the five prayers
+    // ring, and must not be read as a licence to stay quiet about the half
+    // hour in which salah is prohibited — so it is armed *before* the gate
+    // below, from the same window Home's red line prints.
+    await _scheduleMakruh(day: day, now: now);
+
     // "When will the Azaan play?" — this pass arms the *calculated* (Awwal) reminders.
     // `cancelAzan()` above has already retired yesterday's copy of both this
     // block and its alarm-stream twins, so leaving here is what keeps only the
@@ -2373,15 +2455,6 @@ class NotificationService {
       return;
     }
 
-    // A user who picked a custom city — or simply has GPS off — *sees* times
-    // computed from that city: every display path applies `customLatitude`.
-    // Scheduling from the raw coordinate instead is how a board reading
-    // "Fajr 5:12" produced a reminder at 5:17, silently, after every restart.
-    final double effectiveLatitude = settings.customLatitude ?? latitude;
-    final double effectiveLongitude = settings.customLongitude ?? longitude;
-    final LocalPrayerTimes day =
-        settings.compute(latitude: effectiveLatitude, longitude: effectiveLongitude);
-    final DateTime now = DateTime.now();
     int scheduled = 0;
 
     for (final String key in kNotifiablePrayers) {
@@ -2489,6 +2562,96 @@ class NotificationService {
         '$effectiveLatitude,$effectiveLongitude');
   }
 
+  /// The words the zawal banner carries, kept out of [_scheduleMakruh] so a
+  /// test can pin them without a plugin to schedule through.
+  ///
+  /// "Prohibited time" is the phrase a reader already knows from the masjid's
+  /// printed table, and the window is [LocalPrayerTimes.makruhWindow]'s own —
+  /// Dhuhr less half an hour up to Dhuhr — so the banner and the red line on
+  /// Home can never name two different half hours.
+  @visibleForTesting
+  static ({String title, String body}) makruhText({
+    required DateTime start,
+    required DateTime end,
+    required AppSettings settings,
+  }) =>
+      (
+        title:
+            'Prohibited time ${settings.format(start)} – ${settings.format(end)}',
+        body: 'Zawal is on — salah is prohibited until Dhuhr begins at '
+            '${settings.format(end)}.',
+      );
+
+  /// Arms today's zawal banner: one notification at the minute the half hour
+  /// opens, repeating daily on that wall-clock minute.
+  ///
+  /// Called from every [scheduleAzan] pass and retired by every [cancelAzan]
+  /// one, so the banner keeps the same life the five reminders have — a day
+  /// whose times have drifted a minute is corrected the moment the app is
+  /// next opened, and switching notifications off takes it down with them.
+  static Future<void> _scheduleMakruh({
+    required LocalPrayerTimes day,
+    required DateTime now,
+  }) async {
+    final ({DateTime start, DateTime end})? window = day.makruhWindow;
+    if (window == null) return;
+
+    // A window that has already opened today arms *tomorrow's* copy, never a
+    // duplicate of the one that has just passed — the same roll the five
+    // reminders make, and for the same reason: a repeating schedule only
+    // fires forward from its anchor.
+    DateTime fire = window.start;
+    while (!fire.isAfter(now)) {
+      fire = fire.add(const Duration(days: 1));
+    }
+
+    final ({String title, String body}) words = makruhText(
+      start: window.start,
+      end: window.end,
+      settings: AppSettings.instance,
+    );
+    final tz.TZDateTime when = tz.TZDateTime(
+      tz.local,
+      fire.year,
+      fire.month,
+      fire.day,
+      fire.hour,
+      fire.minute,
+    );
+
+    try {
+      await _plugin.zonedSchedule(
+        id: makruhId,
+        scheduledDate: when,
+        title: words.title,
+        body: words.body,
+        notificationDetails: _makruhDetails,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        matchDateTimeComponents: DateTimeComponents.time,
+        payload: 'makruh',
+      );
+      debugPrint('Makruh ▸ banner armed for ${words.title}');
+    } catch (error) {
+      // Android 14+ can revoke SCHEDULE_EXACT_ALARM — the inexact alarm may
+      // drift by a minute, which still beats never saying so at all.
+      debugPrint('Noor ▸ exact schedule failed for makruh, retrying inexact: $error');
+      try {
+        await _plugin.zonedSchedule(
+          id: makruhId,
+          scheduledDate: when,
+          title: words.title,
+          body: words.body,
+          notificationDetails: _makruhDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          matchDateTimeComponents: DateTimeComponents.time,
+          payload: 'makruh',
+        );
+      } catch (secondError) {
+        debugPrint('Noor ▸ makruh schedule failed: $secondError');
+      }
+    }
+  }
+
   static Future<void> cancelAzan() async {
     for (final String key in kNotifiablePrayers) {
       try {
@@ -2500,6 +2663,12 @@ class NotificationService {
       await AzaanAlarm.cancel(_azanId(key));
     }
     await AzaanAlarm.cancelRange(AzaanAlarm.azanIdFloor, kNotifiablePrayers.length);
+    // The zawal banner is armed by the same pass, so it is retired by the
+    // same pass: a day spent with notifications off must not leave yesterday's
+    // half hour ringing from a schedule nobody re-armed.
+    try {
+      await _plugin.cancel(id: makruhId);
+    } catch (_) {}
   }
 
   /// One-shot id for a snoozed reminder — outside the 0..4 daily block
