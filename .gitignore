@@ -42,3 +42,27 @@ Thumbs.db
 # no GEMINI_API_KEY and silently falls back to on-device OCR. The key ships
 # inside the APK either way (see gemini_ocr_service.dart), so keeping it out of
 # git bought nothing and broke every off-laptop build.
+
+# --- Personal video-generation leftovers (app ka hissa NAHI) ---
+# Inhe kabhi git add mat karna - 1 GB tak ka junk git me chala jata hai.
+/clips/
+/audio/
+/preview/
+/style_a/
+/style_b/
+/china_dc/
+/__pycache__/
+final_audio.wav
+/sheet_a.jpg
+/sheet_b.jpg
+*.mp4
+build_video.py
+render_video.py
+gen_tts.py
+gen_tts.ps1
+make_audio.py
+timeline.py
+show_words.py
+list_voices.py
+check_voices.ps1
+check_uwp_voices.ps1

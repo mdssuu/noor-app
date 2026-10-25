@@ -195,22 +195,14 @@ const String kAzaanTimingNone = 'none';
 const String kAzaanTimingDefault = kAzaanTimingJamaatOnly;
 
 /// Dropdown order, exactly as the Settings rows appear.
+/// Only one Azaan option is offered in Settings.
 const List<String> kAzaanTimingOptions = <String>[
   kAzaanTimingJamaatOnly,
-  kAzaanTimingAwwalOnly,
-  kAzaanTimingBoth,
-  kAzaanTimingNone,
 ];
 
 /// The wording the user sees in the "When will the Azaan play?" dropdown.
 String azaanTimingLabel(String key) {
   switch (key) {
-    case kAzaanTimingAwwalOnly:
-      return 'Only at Awwal time';
-    case kAzaanTimingBoth:
-      return 'At both times';
-    case kAzaanTimingNone:
-      return 'Off';
     case kAzaanTimingJamaatOnly:
     default:
       return 'Only at Jamaat time';
@@ -277,7 +269,7 @@ class NewUserDefaults {
         : builtin.azanSound;
 
     final String timing = raw['azaanTiming'] is String &&
-            kAzaanTimingOptions.contains(raw['azaanTiming'])
+            raw['azaanTiming'] == kAzaanTimingJamaatOnly
         ? raw['azaanTiming'] as String
         : builtin.azaanTiming;
 
@@ -711,19 +703,10 @@ class AppSettings extends ChangeNotifier {
 
   /// The Azaan timings the user is allowed to pick.
   ///
-  /// While a pre-prayer reminder is on, only "at my favourite masjid" is
-  /// left; without one, all four choices stay on offer.
-  List<String> get azaanTimingOptions => hasPrePrayerReminder
-      ? const <String>[kAzaanTimingJamaatOnly]
-      : kAzaanTimingOptions;
-
-  /// Keeps the stored Azaan timing in sync with the pre-prayer reminder rule.
-  void _applyAzaanTimingRule() {
-    if (!hasPrePrayerReminder) return;
-    if (_azaanTiming == kAzaanTimingJamaatOnly) return;
-    _azaanTiming = kAzaanTimingJamaatOnly;
-    _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), kAzaanTimingJamaatOnly));
-  }
+  /// Only one choice is offered: the Azaan plays once per prayer, at the
+  /// favourite masjid's Jamaat time. A pre-prayer reminder (At time, N min)
+  /// does not hide this option anymore.
+  List<String> get azaanTimingOptions => const <String>[kAzaanTimingJamaatOnly];
 
   /// Whether the calculated (Awwal) reminders may be armed. With `none`
   /// selected both of these read false and every Azaan alarm is cancelled.
@@ -930,8 +913,9 @@ class AppSettings extends ChangeNotifier {
       _azanSound = prefs.getString(_key(_kAzan)) ?? 'makkah';
       // An unknown stored value would otherwise read as "no source at all",
       // which is how a typo could silently mute every reminder.
+      // Only one option is offered now, so only that one is accepted.
       final String timing = prefs.getString(_key(_kAzaanTiming)) ?? kAzaanTimingDefault;
-      _azaanTiming = kAzaanTimingOptions.contains(timing) ? timing : kAzaanTimingDefault;
+      _azaanTiming = timing == kAzaanTimingJamaatOnly ? timing : kAzaanTimingDefault;
       // Kept verbatim on purpose: the home screen only honours an id that is
       // still starred, so a masjid that has since been unstarred simply
       // costs one fallback rather than a key that silently lies.
@@ -960,7 +944,6 @@ class AppSettings extends ChangeNotifier {
       }
       _loadFavAlerts(prefs);
       _loaded = true;
-      _applyAzaanTimingRule();
     } catch (error) {
       debugPrint('Noor ▸ settings load failed: $error');
       _loaded = true;
@@ -1134,7 +1117,6 @@ class AppSettings extends ChangeNotifier {
 
   void setNotifyOffset(String prayer, int minutes) {
     _notifyOffsets[prayer] = minutes;
-    _applyAzaanTimingRule();
     notifyListeners();
     _put((SharedPreferences p) => p.setInt(_key('notify_$prayer'), minutes));
   }
@@ -1148,7 +1130,6 @@ class AppSettings extends ChangeNotifier {
   void setFavMode(String prayer, String mode) {
     if (mode != kFavModeAt && mode != kFavModeOffset) return;
     _favModes[prayer] = mode;
-    _applyAzaanTimingRule();
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key('favmode_$prayer'), mode));
   }
@@ -1170,11 +1151,10 @@ class AppSettings extends ChangeNotifier {
   /// "When will the Azaan play?" — persisted as `azaan_timing_pref`, and pushed to the
   /// listeners so the Settings screen re-arms the alarms on the next frame.
   void setAzaanTiming(String key) {
-    if (!kAzaanTimingOptions.contains(key)) return;
-    _azaanTiming = key;
-    _applyAzaanTimingRule();
+    // Only one option is offered now, so any other value falls back to it.
+    _azaanTiming = kAzaanTimingJamaatOnly;
     notifyListeners();
-    _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), key));
+    _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), kAzaanTimingJamaatOnly));
   }
 
   /// Takes [defaults] as this profile's starting point, in one write —
@@ -1205,7 +1185,6 @@ class AppSettings extends ChangeNotifier {
     _hijriAdjustment = defaults.hijriAdjustment;
     _azanSound = defaults.azanSound;
     _azaanTiming = defaults.azaanTiming;
-    _applyAzaanTimingRule();
     _readingLang = defaults.readingLanguage;
     _notificationsEnabled = defaults.notificationsEnabled;
     for (final String prayer in kNotifiablePrayers) {

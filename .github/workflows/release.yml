@@ -116,7 +116,7 @@ jobs:
 
       # Master push par: rolling release. Iska matlab - Releases page par hamesha
       # latest APK maujood, aur uska link kabhi nahi badalta:
-      #   https://github.com/mdssuu/privatecode/releases/download/latest/noor-masjid-time-latest.apk
+      #   https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk
       - name: Update the rolling "Latest APK" release
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
@@ -128,12 +128,12 @@ jobs:
           body: |
             Har `master` push par ye release update hoti hai.
 
-            **Download:** [noor-masjid-time-latest.apk](https://github.com/mdssuu/privatecode/releases/download/latest/noor-masjid-time-latest.apk)
+            **Download:** [noor-masjid-time-latest.apk](https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk)
 
             Version: `${{ github.sha }}` se build hua hai
-            (commit: https://github.com/mdssuu/privatecode/commit/${{ github.sha }}).
+            (commit: https://github.com/mdssuu/noor-app/commit/${{ github.sha }}).
 
-            Official versioned releases ke liye [tags](https://github.com/mdssuu/privatecode/releases) dekho.
+            Official versioned releases ke liye [tags](https://github.com/mdssuu/noor-app/releases) dekho.
 
       # noor-apk = public distribution repo. Wahan wo APK jaati hai jo yahan
       # ban chuki hai - dobara build nahi. Isse ek hi source of truth rehta
@@ -141,7 +141,12 @@ jobs:
       #
       # Ek hi version par push = usi release ka APK replace hota hai, isliye
       # Releases page par har push ke baad tarza APK hi dikhta hai.
+      # NOTE: is step ko chalne ke liye repo me "NOOR_PUBLISH_TOKEN" secret
+      # chahiye (ek GitHub PAT jo noor-apk me release bana sake). Secret na
+      # ho to ye step chhod diya jaata hai - APK yahan (noor-app) release me
+      # lag chuki hoti hai, build fail nahi hoti.
       - name: Publish to the public repo (noor-apk)
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.NOOR_PUBLISH_TOKEN }}
         run: |
@@ -164,7 +169,7 @@ jobs:
           else
             gh release create "$TAG" --repo mdssuu/noor-apk \
               --title "$TAG" \
-              --notes "mdssuu/privatecode (version ${VERSION}, commit ${GITHUB_SHA}) se apne aap publish hua."
+              --notes "mdssuu/noor-app (version ${VERSION}, commit ${GITHUB_SHA}) se apne aap publish hua."
           fi
           gh release upload "$TAG" --repo mdssuu/noor-apk "$DEST" --clobber
           echo "Published: https://github.com/mdssuu/noor-apk/releases/tag/$TAG"
