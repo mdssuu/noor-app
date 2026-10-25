@@ -109,19 +109,26 @@ void main() {
       expect(GeminiOcrService.lastFailureReason, isNotEmpty);
     });
 
-    test('reads GEMINI_API_KEY out of .env', () async {
+    test('reads GEMINI_API_KEY out of .env', () {
       TestWidgetsFlutterBinding.ensureInitialized();
-      try {
-        await dotenv.load();
-      } catch (_) {
-        // No .env in this checkout — the key is git-ignored, so a fresh clone
-        // legitimately has none. Nothing to assert.
-        return;
-      }
 
-      // Proves both halves of the wiring: flutter_dotenv parsed the file and
-      // the service found a real key in it rather than the placeholder.
+      // Is repo me committed .env ek PLACEHOLDER hai (khali key) - asli key
+      // kabhi git me nahi jaati. Isliye ye test apna khud ka .env deta hai,
+      // warna result machine par machine ke hisaab se badalta.
+      dotenv.loadFromString(envString: 'GEMINI_API_KEY=test-key-for-this-test');
       expect(GeminiOcrService.isConfigured, isTrue);
+
+      // Khali key = placeholder = "configured nahi". Yahi wajah hai ki CI aur
+      // har clone chup-chaap on-device OCR par chalte hain.
+      dotenv.loadFromString(envString: 'GEMINI_API_KEY=');
+      expect(GeminiOcrService.isConfigured, isFalse);
+
+      // Purana placeholder, jo pehle README me likha tha - usse bhi
+      // configured nahi hona chahiye (warna ek thali ki key se API call chalti).
+      dotenv.loadFromString(envString: 'GEMINI_API_KEY=PASTE_YOUR_NEW_KEY_HERE');
+      expect(GeminiOcrService.isConfigured, isFalse);
+
+      dotenv.clean();
     });
   });
 }
