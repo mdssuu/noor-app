@@ -14,9 +14,13 @@ class AboutScreen extends StatelessWidget {
   /// Where help requests, bug reports and masjid-owners' questions land.
   static const String supportEmail = 'mdsunesra@gmail.com';
 
-  /// The public, no-login APK page — the same link the app is shared with.
+  /// The public, no-login APK — the same link the app is shared with.
+  ///
+  /// `releases/download/latest/...` hamesha wahi file deta hai jo har
+  /// `master` push par update hoti hai. (`mdssuu/noor-apk` naam ki koi repo
+  /// hai hi nahi - purana link 404 deta tha.)
   static const String downloadUrl =
-      'https://github.com/mdssuu/noor-apk/releases/latest';
+      'https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk';
 
   Future<void> _open(String url) async {
     bool opened = false;

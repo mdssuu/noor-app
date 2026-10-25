@@ -134,6 +134,40 @@ flutterfire configure
 plugin in `android/` (the `START/END: FlutterFire Configuration` markers) and only
 adds `android/app/google-services.json`.
 
+### Private files (repo me nahi hain)
+
+Ye files **jaan bujh kar** git se bahar hain. Agar ye repo me hoti to koi bhi
+`git clone` karke aapki tarah signed APK bana sakta tha aur `.env` ki key APK
+se nikal li jaati:
+
+| File | CI me kahan se aati hai | Laptop par |
+| --- | --- | --- |
+| `android/key.properties` | Actions secret `NOOR_KEY_PROPERTIES` | isi path par rakhi hai |
+| `android/app/noor-release.p12` | Actions secret `NOOR_KEY_P12_B64` (base64) | isi path par rakhi hai |
+| `android/app/google-services.json` | Actions secret `NOOR_GMS_JSON_B64` (base64) | isi path par rakhi hai |
+| `.env` (Gemini key) | nahi aati - repo me placeholder `GEMINI_API_KEY=` hai | asli key `.env` me (skip-worktree) + `.env.local` backup |
+
+`release.yml` ka **Reveal private build files** step inhe build se pehle
+likhta hai. Secret na mile to release workflow wahin ruk jaati hai (galat key
+se sign hone se pehle), aur debug build ka CI chalta rehta hai.
+
+Secrets dobara set karne ho to:
+
+```bash
+gh auth login
+gh secret set NOOR_KEY_PROPERTIES --repo mdssuu/noor-app < android/key.properties
+base64 -w0 android/app/noor-release.p12     | gh secret set NOOR_KEY_P12_B64  --repo mdssuu/noor-app
+base64 -w0 android/app/google-services.json | gh secret set NOOR_GMS_JSON_B64 --repo mdssuu/noor-app
+```
+
+PowerShell wale ye likh sakte hain:
+
+```powershell
+Get-Content android\key.properties -Raw | gh secret set NOOR_KEY_PROPERTIES --repo mdssuu/noor-app
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\noor-release.p12"))        | gh secret set NOOR_KEY_P12_B64  --repo mdssuu/noor-app
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\google-services.json"))    | gh secret set NOOR_GMS_JSON_B64 --repo mdssuu/noor-app
+```
+
 ### Firebase console
 
 1. **Build → Authentication → Sign-in method → Google → Enable** (add a support email).
@@ -211,7 +245,7 @@ a cloud container defined by `.devcontainer/`.
 
 **First time, about 5 minutes:**
 
-1. Open `github.com/mdssuu/privatecode` in Chrome on your phone.
+1. Open `github.com/mdssuu/noor-app` in Chrome on your phone.
 2. Tap **Code** → **Codespaces** tab → **Create codespace on master**.
 3. The container installs the current Flutter stable and runs `flutter pub get`
    by itself (`.devcontainer/postCreate.sh`). Wait for "Done."
@@ -222,15 +256,15 @@ a cloud container defined by `.devcontainer/`.
 
 1. Open a file, edit it, tap the tick to commit.
 2. Push from the terminal tab: `git push`
-3. CI (`.github/workflows/ci.yml`) then runs `flutter analyze`, all 273 tests,
-   and uploads a debug APK as an artifact.
+3. CI (`.github/workflows/ci.yml`) then runs `flutter analyze`, saare tests,
+   aur ek debug APK artifact upload karta hai.
 
 **Get an APK onto the phone:**
 
 - **Automatic (recommended)** - har `master` push par
   `.github/workflows/release.yml` release APK banata hai aur GitHub ka
   **Latest APK (master)** release update kar deta hai. Seedha link:
-  <https://github.com/mdssuu/privatecode/releases/download/latest/noor-masjid-time-latest.apk>
+  <https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk>
   (yahi link hamesha latest APK deta hai, kabhi nahi badalta).
 - **Official version** - ek tag push karo, jaise `git tag v1.5.2 && git push origin v1.5.2`.
   Us tag ka proper GitHub Release banta hai (auto release notes + versioned
@@ -238,17 +272,27 @@ a cloud container defined by `.devcontainer/`.
 - **Manual** - open **Actions** → **Release APK** → **Run workflow**. The APK
   is uploaded as an artifact instead.
 
-> **Pehli baar install karte waqt:** pehle wali APK debug key se sign thi, is
-> liye nayi release APK uske upar install nahi hogi ("signatures do not
-> match"). Phone se purani app **ek baar uninstall** karo, phir nayi APK
-> install karo. Uske baad har release seedha update hoga, kyunki ab sab
-> release ek hi fixed key se sign hoti hain
-> (`android/key.properties` + `android/app/noor-release.p12`).
+> **Pehli baar install karte waqt:** phone par purani (pehle wali) app
+> **ek baar uninstall** karo, phir nayi APK install karo. Signature badal
+> chuka hai, isliye warna "signatures do not match" aayega. Uske baad har
+> release seedha update hota rahega.
 >
-> Wo key private repo me hai - jiska bhi repo access hai woh signed APK bana
-> sakta hai. Play Store jaise public store par daalne se pehle key rotate kar
-> lo. Usi key se laptop par bhi release build hoti hai, is liye laptop ki APK
-> bhi phone wali APK ke upar install ho jaati hai.
+> **Key rotate ho chuki hai (25 Oct 2026).** Purani `noor-release.p12` +
+> `key.properties` + `.env` public repo me pade the, yaani koi bhi aapki tarah
+> signed APK bana sakta tha. Wo teeno ab git history se bhi nikal diye gaye
+> hain aur repo me nahi aate (upar "Private files" section dekho). Nayi key
+> parhelat se laptop aur CI dono par ek hi hai, isliye dono ki APK ek dusre ke
+> upar install hoti hai.
+>
+> **Nayi key ka SHA-1 Firebase console me daalna zaroori hai** (warna Google
+> Sign-In chalega hi nahi):
+>
+> ```
+> SHA-1:    57:49:3B:88:E0:28:28:72:80:99:1A:86:9D:5D:BB:D9:C2:88:E0:50
+> SHA-256:  AB:FB:F7:1C:A5:01:B4:9C:D4:3B:C0:A2:B8:AC:9E:85:32:46:52:62:B1:04:AE:E3:62:C2:43:DB:99:28:75:D4
+> ```
+>
+> Project settings → Your apps → Android → Add fingerprint.
 
 **Keep this laptop in the loop too:**
 

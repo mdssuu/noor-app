@@ -54,6 +54,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Secret files repo me nahi hain (signing key + Firebase config). Agar ye
+      # repo me hoti to koi bhi aapki tarah signed APK bana sakta tha. Yahan
+      # GitHub Actions ke secrets se wapas likhi jaati hain - sirf is workflow
+      # ke andar, aur runner khatam hote hi gayab.
+      - name: Reveal private build files
+        env:
+          NOOR_KEY_PROPERTIES: ${{ secrets.NOOR_KEY_PROPERTIES }}
+          NOOR_KEY_P12_B64: ${{ secrets.NOOR_KEY_P12_B64 }}
+          NOOR_GMS_JSON_B64: ${{ secrets.NOOR_GMS_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${NOOR_KEY_PROPERTIES:-}" ]; then
+            printf '%s\n' "$NOOR_KEY_PROPERTIES" > android/key.properties
+            echo "key.properties likhi gayi"
+          fi
+          if [ -n "${NOOR_KEY_P12_B64:-}" ]; then
+            printf '%s' "$NOOR_KEY_P12_B64" | base64 -d > android/app/noor-release.p12
+            echo "noor-release.p12 likhi gayi"
+          fi
+          if [ -n "${NOOR_GMS_JSON_B64:-}" ]; then
+            printf '%s' "$NOOR_GMS_JSON_B64" | base64 -d > android/app/google-services.json
+            echo "google-services.json likhi gayi"
+          fi
+
+      # Key na ho to build chup-chaap debug key par sign kar deti hai, aur
+      # phone par purani APK ke upar install hi nahi hoti. Abhi rok do.
+      - name: Release key maujood hai?
+        run: |
+          if [ ! -f android/key.properties ] || [ ! -f android/app/noor-release.p12 ]; then
+            echo "::error::Signing key nahi mili. Repo secrets NOOR_KEY_PROPERTIES aur NOOR_KEY_P12_B64 set karo (README me tarika hai)."
+            exit 1
+          fi
+          if [ ! -f android/app/google-services.json ]; then
+            echo "::error::google-services.json nahi mili - secret NOOR_GMS_JSON_B64 set karo."
+            exit 1
+          fi
+          ls -l android/key.properties android/app/noor-release.p12 android/app/google-services.json
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -135,44 +173,10 @@ jobs:
 
             Official versioned releases ke liye [tags](https://github.com/mdssuu/noor-app/releases) dekho.
 
-      # noor-apk = public distribution repo. Wahan wo APK jaati hai jo yahan
-      # ban chuki hai - dobara build nahi. Isse ek hi source of truth rehta
-      # hai: dono repo ka app hamesha ek jaisa, ek jaisi key se signed.
-      #
-      # Ek hi version par push = usi release ka APK replace hota hai, isliye
-      # Releases page par har push ke baad tarza APK hi dikhta hai.
-      # NOTE: is step ko chalne ke liye repo me "NOOR_PUBLISH_TOKEN" secret
-      # chahiye (ek GitHub PAT jo noor-apk me release bana sake). Secret na
-      # ho to ye step chhod diya jaata hai - APK yahan (noor-app) release me
-      # lag chuki hoti hai, build fail nahi hoti.
-      - name: Publish to the public repo (noor-apk)
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.NOOR_PUBLISH_TOKEN }}
-        run: |
-          set -euo pipefail
-          VERSION="$(grep -E '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)"
-          # Tag push = wahi tag noor-apk par. Master/branch push = us version
-          # ka release (1.6.0 -> v1.6), taaki ek hi version ka ek hi release rahe.
-          if [[ "$GITHUB_REF_NAME" == v* ]]; then
-            TAG="$GITHUB_REF_NAME"
-          else
-            TAG="v$(echo "$VERSION" | cut -d. -f1,2)"
-          fi
-          DEST="dist/noor-masjid-time-${TAG}.apk"
-          mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk "$DEST"
-          ls -lh "$DEST"
-
-          if gh release view "$TAG" --repo mdssuu/noor-apk >/dev/null 2>&1; then
-            echo "Release $TAG pehle se hai - sirf APK replace ho rahi hai"
-          else
-            gh release create "$TAG" --repo mdssuu/noor-apk \
-              --title "$TAG" \
-              --notes "mdssuu/noor-app (version ${VERSION}, commit ${GITHUB_SHA}) se apne aap publish hua."
-          fi
-          gh release upload "$TAG" --repo mdssuu/noor-apk "$DEST" --clobber
-          echo "Published: https://github.com/mdssuu/noor-apk/releases/tag/$TAG"
+      # Purana "noor-apk me publish" step hata diya gaya: naam ki repo
+      # (mdssuu/noor-apk) exist hi nahi karti, har run wahan 404 par chup-chaap
+      # fail hoti thi, aur About screen ka link bhi wahi tha. Ab sirf ek hi
+      # jagah APK jaati hai - yahi repo (noor-app) ki rolling release.
 
       # Manual run (bina tag ke) par: artifact ke roop me rakho.
       - name: Upload APK artifact

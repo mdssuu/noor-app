@@ -80,6 +80,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # google-services.json repo me nahi hai (private build file), isliye
+      # secret se wapas likhi jaati hai - warna Gradle google-services plugin
+      # hi build rok deta hai.
+      - name: Reveal private build files
+        env:
+          NOOR_GMS_JSON_B64: ${{ secrets.NOOR_GMS_JSON_B64 }}
+        run: |
+          if [ -n "${NOOR_GMS_JSON_B64:-}" ]; then
+            printf '%s' "$NOOR_GMS_JSON_B64" | base64 -d > android/app/google-services.json
+            echo "google-services.json likhi gayi"
+          else
+            echo "::warning::NOOR_GMS_JSON_B64 secret nahi hai - Android build fail ho sakti hai"
+          fi
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:

@@ -107,9 +107,12 @@ Future<void> main() async {
     return true;
   };
 
-  // Secrets live in .env (git-ignored, bundled as an asset). Loaded before the
-  // first frame so Gemini OCR can tell "no key" apart from "not loaded yet".
-  // A missing file must never stop the app — OCR simply drops to on-device.
+  // .env repo me ek PLACEHOLDER hai (khali key); asli key sirf us machine par
+  // hai jahan se build ki gayi ho. File asset ki tarah bundle hoti hai, aur
+  // khali key par Gemini "not configured" keh kar chup-chaap on-device OCR
+  // par chali jaata hai. Loaded before the first frame so Gemini OCR can tell
+  // "no key" apart from "not loaded yet". A missing file must never stop the
+  // app — OCR simply drops to on-device.
   try {
     await dotenv.load();
     debugPrint('Noor ▸ .env loaded (Gemini '

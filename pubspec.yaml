@@ -119,9 +119,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Secrets live in .env (git-ignored) and are read with flutter_dotenv.
-  # NOTE: bundling it as an asset means the key ships inside the APK â€” see
-  # the security note at the top of lib/services/gemini_ocr_service.dart.
+  # .env ek PLACEHOLDER hai (khali GEMINI_API_KEY) - asli key kabhi commit
+  # nahi hoti. flutter_dotenv ise padhta hai, aur asset ki tarah bundle hone
+  # se andar jo bhi key ho wo APK me chali jaati hai - security note dekho
+  # lib/services/gemini_ocr_service.dart ke top par.
   assets:
     - .env
     - assets/logo/noor_logo.jpg

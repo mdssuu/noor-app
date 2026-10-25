@@ -12,9 +12,12 @@ import 'package:http/http.dart' as http;
 ///
 /// SECURITY NOTE — read before shipping anything but a personal build.
 ///
-/// The key lives in `.env` (git-ignored) and is read with `flutter_dotenv`,
-/// so it never appears in a Dart source file. That keeps it out of code review
-/// and out of version control — but **it is still not secret on a device**.
+/// The key lives in `.env` on the machine that builds, and is read with
+/// `flutter_dotenv`, so it never appears in a Dart source file. The `.env`
+/// **committed to this repo is a placeholder with an empty key** — CI, clones
+/// and Codespaces therefore build with no Gemini key and fall straight back
+/// to on-device ML Kit. The key is still **not secret on a device** if a build
+/// does carry it.
 ///
 /// `flutter_dotenv` ships `.env` as a bundled asset, and assets are plain
 /// files inside the APK:

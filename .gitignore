@@ -16,11 +16,18 @@ android/app/.cxx/
 android/gradle/
 *.keystore
 *.jks
-# NOTE: android/key.properties is deliberately NOT ignored (only a stray
-# key.properties in the repo root is). The release signing key has to be the
-# same on the laptop and on CI - a per-runner debug key means every new APK
-# refuses to install over the previous one ("signatures do not match").
 /key.properties
+
+# --- Private build files: PUBLIC REPO ME KABHI MAT DALNA ---
+# Inme release signing key aur Firebase config hai. Agar ye dobara repo me
+# aa gayi to koi bhi aapki tarah signed APK bana sakta hai. CI inhe GitHub
+# Actions ke secrets se likhta hai (release.yml ka "Reveal private build
+# files" step); laptop par ye files isi jagah rakhi hain.
+/android/key.properties
+/android/app/*.p12
+/android/app/google-services.json
+# Asli .env (Gemini key) ka backup - .env khud tracked hai par placeholder.
+/.env.local
 
 # iOS / macOS
 ios/Pods/
@@ -37,11 +44,19 @@ macos/Pods/
 .DS_Store
 Thumbs.db
 
-# NOTE: .env is intentionally committed. pubspec.yaml bundles it as an asset,
-# so without it in the repo every GitHub / Codespace build produces an app with
-# no GEMINI_API_KEY and silently falls back to on-device OCR. The key ships
-# inside the APK either way (see gemini_ocr_service.dart), so keeping it out of
-# git bought nothing and broke every off-laptop build.
+# Agent / editor leftovers (app ka hissa nahi)
+/.kilo/
+web/icons/*.backup
+
+# .env TRACKED hai par sirf placeholder (khali GEMINI_API_KEY) - asli key
+# repo me NAHI hai. pubspec.yaml isse asset ki tarah bundle karta hai, isliye
+# file ko maujood hona zaroori hai; khali key par app seedha on-device ML Kit
+# OCR par chalti hai (gemini_ocr_service.dart wahi fallback hai).
+#
+# Asli key laptop par .env me rakhi hai (git update-index --skip-worktree .env
+# se ignore hoti hai) aur .env.local me backup hai. NOTE: pata chhupane se key
+# APK ke andar se nikalna band nahi hoti - wo aaj bhi unzip se nikli ja sakti
+# hai. Isliye public build me key daali hi nahi jaati.
 
 # --- Personal video-generation leftovers (app ka hissa NAHI) ---
 # Inhe kabhi git add mat karna - 1 GB tak ka junk git me chala jata hai.
