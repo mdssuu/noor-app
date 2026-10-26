@@ -7,12 +7,14 @@ import 'package:flutter/widgets.dart';
 /// notification posts to a channel with no sound — on `RINGER_MODE_SILENT` /
 /// `VIBRATE` Android mutes every notification sound anyway, so a recitation
 /// carried by the channel would never be heard. Routing the clip through
-/// `AudioAttributes.USAGE_ALARM` sidesteps that: the alarm stream is the one
-/// volume position Android refuses to silence, and because exactly one thing
-/// makes the noise, a volume key during playback always means "stop it" —
-/// [MainActivity]'s key handler in front, the playback service's media
-/// session otherwise, and the "STOP AZAN" action on its notification when the
-/// phone is locked.
+/// `AudioAttributes.USAGE_ALARM` puts it on the one stream a ringer key does
+/// not mute, and that turns out to make the *app* the party that decides
+/// whether a silenced reader hears anything: [ringerMode] reads the switch,
+/// and `AzaanAudio.play` refuses when the answer is not `normal`. Because
+/// exactly one thing makes the noise, a volume key during playback always
+/// means "stop it" — [MainActivity]'s key handler in front, the playback
+/// service's media session otherwise, and the "STOP AZAN" action on its
+/// notification when the phone is locked.
 ///
 /// It follows that the clip belongs at the prayer time itself. A reminder set
 /// minutes early is an advance notice, and scheduling the recitation at that
@@ -127,10 +129,27 @@ class AzaanAlarm {
 
   /// Plays [raw] right now on the alarm stream — the "Test Azaan" button and
   /// the in-app preview. Returns `false` when the platform has no native side,
-  /// which is the caller's cue to fall back to the remote clip.
+  /// which is the caller's cue to fall back to the remote clip, and when the
+  /// phone is silenced, which is not: [ringerMode] is asked before dialling
+  /// precisely so that case never reaches the fallback.
   static Future<bool> playNow(String raw) async {
     install();
     return await _call('playNow', <String, Object?>{'sound': raw}) == true;
+  }
+
+  /// The phone's own ringer switch: `normal`, `vibrate` or `silent`.
+  ///
+  /// The one question worth asking before any noise is made. The alarm stream
+  /// a recitation rides is deliberately the stream a ringer key does not
+  /// mute — which means nothing downstream can be trusted to stay quiet on a
+  /// phone somebody switched off, so the switching off is checked here
+  /// instead. `normal` is also the answer where there is no Android side to
+  /// ask (desktop, web, tests): a guard must never be able to block a
+  /// platform that has nothing to guard.
+  static Future<String> ringerMode() async {
+    install();
+    final Object? value = await _call('ringerMode');
+    return value is String && value.isNotEmpty ? value : 'normal';
   }
 
   static Future<void> stop() => _call('stop');

@@ -145,6 +145,27 @@ class _SettingsScreenState extends State<SettingsScreen>
   /// turn into a Stop button instead of stacking a second clip on the first.
   bool get _testPlaying => AzanPlayer.instance.playingKey == _settings.azanSound;
 
+  /// Says why nothing sounded when the reader pressed for something to.
+  ///
+  /// [AzanPlayer.preview] answers `false` when the phone is on silent or
+  /// vibrate — the reminder does not override a silence somebody set on
+  /// purpose, and neither does a button that is only an honest rehearsal of
+  /// it. Unexplained, that is the original complaint again: a button that
+  /// does nothing. Every `false` therefore gets one sentence, once.
+  void _explainSilenced() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Text(
+          'Your phone is on silent or vibrate, so nothing is playing — that '
+          'is the Azaan staying quiet exactly as your reminders will. Turn '
+          'the ringer up to hear it.',
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -1028,7 +1049,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                     // old channel has been dropped and rebuilt around it.
                     if (changed) await NotificationService.applyAzanChannel();
                     if (!mounted) return;
-                    await AzanPlayer.instance.preview(sound.key);
+                    final bool started =
+                        await AzanPlayer.instance.preview(sound.key);
+                    // A row that selected a clip and then made no noise is
+                    // only trustworthy if it says which of the two it did.
+                    if (!started) _explainSilenced();
                   },
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
@@ -1070,7 +1095,7 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: GradientButton(
               label: _testPlaying ? 'Stop Azaan' : 'Test Azaan',
               icon: _testPlaying ? Icons.stop_circle_outlined : Icons.volume_up_outlined,
-              onPressed: () {
+              onPressed: () async {
                 // "None (silent)" has no clip to test, so the button plays the
                 // built-in one instead of answering nothing at all — but a
                 // reader who hears an Azan and does not know why would read
@@ -1087,7 +1112,12 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                   );
                 }
-                AzanPlayer.instance.preview(_settings.azanSound);
+                // On a phone this reader has silenced, not even the built-in
+                // clip is going to sound, and a button that explains nothing
+                // is how this row first came to look broken. Say so.
+                final bool started =
+                    await AzanPlayer.instance.preview(_settings.azanSound);
+                if (!started) _explainSilenced();
               },
             ),
           ),
@@ -1096,11 +1126,14 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: Text(
               'Each Azaan above ships inside the app, so the reminder plays the '
               'full recitation instead of the phone’s default tone — with the '
-              'app closed, and at alarm volume when the phone is on silent. '
-              '“Test Azaan” plays exactly that file at exactly that volume, and '
-              'either volume key stops it while it runs. Choosing “None” leaves '
-              'the reminder as a silent vibration, and “Test Azaan” then plays '
-              'the built-in one so the path can still be checked.',
+              'app closed, and at alarm volume. Silence is still yours: on '
+              'silent or vibrate the reminder stays quiet rather than '
+              'overriding the choice, and “Test Azaan” says so instead of '
+              'ringing anyway. With the ringer up, “Test Azaan” plays exactly '
+              'that file at exactly that volume, and either volume key stops '
+              'it while it runs. Choosing “None” leaves the reminder as a '
+              'silent vibration, and “Test Azaan” then plays the built-in one '
+              'so the path can still be checked.',
               style: GoogleFonts.outfit(
                 fontSize: 11,
                 color: NoorColors.muted,

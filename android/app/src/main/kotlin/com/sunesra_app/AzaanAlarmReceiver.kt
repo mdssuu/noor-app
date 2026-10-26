@@ -19,9 +19,14 @@ import android.util.Log
  * on the notification stream, where no key could reach it, and it arrived at
  * the advance "in 10 minutes" reminder too.
  *
- * Nothing here consults the ringer mode any more: there is no second sound
- * to stay quiet for, and the alarm stream is the one volume position Android
- * refuses to silence — which is exactly what a prayer reminder needs.
+ * Silence stays silence, and that is asked here. The recitation rides the
+ * alarm stream, which a ringer key does not mute, so unless this receiver
+ * asks first "the phone is on silent" means nothing at all. It is asked
+ * before [AzaanAudio.play] gets the chance as well — and before the service
+ * is started — because a playback notification blinking over a clip nobody
+ * will hear is a promise the reader can see but not hear. Today's alarm has
+ * already rearmed itself by this point, so a declined prayer still owns
+ * tomorrow.
  */
 class AzaanAlarmReceiver : BroadcastReceiver() {
 
@@ -48,6 +53,14 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         val sound = intent.getStringExtra(EXTRA_SOUND)?.trim()?.takeIf { it.isNotEmpty() }
             ?: DEFAULT_SOUND
         if (sound == "silent") return
+
+        // Silence is the reader's, and this is where it is honoured. Today's
+        // alarm has already put tomorrow's in place above, so returning here
+        // costs only this prayer — which is exactly what was asked for.
+        if (!AzaanAudio.ringerAllowsRecitation(context)) {
+            Log.i(TAG, "azaan $id declined — the phone is on silent or vibrate, so it stays silent")
+            return
+        }
 
         // Never stack a second recitation on one that is already sounding.
         if (AzaanAudio.isPlaying()) {

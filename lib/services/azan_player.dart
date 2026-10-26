@@ -16,10 +16,12 @@ import 'azaan_alarm.dart';
 ///     notification while the app is in the foreground.
 ///
 /// Playback goes through the **native alarm-stream player** first, so what the
-/// preview plays is byte-for-byte what the reminder plays, at the same volume,
-/// and it is audible with the ringer off. `audioplayers` is only the fallback
-/// for platforms with no native bundle (desktop, web, tests) — which is also
-/// why each [AzanSound] still carries a remote [AzanSound.url].
+/// preview plays is byte-for-byte what the reminder plays, at the same volume.
+/// It does *not* play over a phone its reader has put on silent or vibrate —
+/// the alarm stream would allow it, and declining anyway is the whole of what
+/// "silent means silent" costs. `audioplayers` is only the fallback for
+/// platforms with no native bundle (desktop, web, tests) — which is also why
+/// each [AzanSound] still carries a remote [AzanSound.url].
 class AzanPlayer {
   AzanPlayer._() {
     install();
@@ -79,22 +81,28 @@ class AzanPlayer {
   /// Tapping the row that is already playing stops it; anything else stops
   /// the current clip and starts the new one.
   ///
-  /// A preview always has something to play. "None (silent)" is the one row
-  /// with no clip of its own, and answering "nothing" to every question a
-  /// reader asks of it — the row's play icon, the "Test Azaan" button — is
-  /// what made that button look broken: it did not fail, it *declined*. So
-  /// the built-in clip stands in here, the same substitution [_bellSound]
+  /// A preview always has something to play — except when the phone is
+  /// silenced, and then it has nothing to play *and says so*. That is what
+  /// the `bool` is for: `false` means "declined, not broken", so the button
+  /// that used to look wired to nothing can explain itself instead of
+  /// staying quiet without a word.
+  ///
+  /// The rest of the promise stands. "None (silent)" is the one row with no
+  /// clip of its own, and answering "nothing" to every question a reader
+  /// asks of it — the row's play icon, the "Test Azaan" button — is what
+  /// made that button look broken: it did not fail, it *declined*. So the
+  /// built-in clip stands in here, the same substitution [_bellSound]
   /// makes for a bell left on azan under a silent profile. What the reminder
   /// itself does with that profile is a separate question, answered by
   /// [playSelected] and by the scheduler — not by a button whose whole job is
   /// to be heard.
-  Future<void> preview(String key) async {
+  Future<bool> preview(String key) async {
     if (_playingKey == key) {
       await stop();
-      return;
+      return true;
     }
     await stop();
-    await _start(key, builtInFallback: true);
+    return _start(key, builtInFallback: true);
   }
 
   /// Replays the clip behind a reminder the reader tapped.
@@ -103,13 +111,27 @@ class AzanPlayer {
   /// a reminder that deliberately recited nothing, and answering it with an
   /// Azan would invent noise the reader asked not to have. Silence is the
   /// honest reply there — it is only the *test* that owes an answer.
-  Future<void> playSelected() =>
+  Future<bool> playSelected() =>
       _start(AppSettings.instance.azanSound, builtInFallback: false);
 
-  Future<void> _start(String key, {required bool builtInFallback}) async {
+  Future<bool> _start(String key, {required bool builtInFallback}) async {
     final AzanSound? chosen = _sound(key);
-    if (chosen == null) return;
-    if (key == 'silent' && !builtInFallback) return;
+    if (chosen == null) return false;
+
+    // Silence is the reader's, and it is asked before a single byte is
+    // fetched. The native player asks the same question and would answer
+    // `false`, but `false` is the wrong answer *here*: step 1 falls through
+    // to step 2, the remote copy would be downloaded, and the row would light
+    // up over a clip this phone is never going to let anyone hear. Asking
+    // first is also what gives [preview] a reason it can show.
+    final String ringer = await AzaanAlarm.ringerMode();
+    if (ringer != 'normal') {
+      debugPrint('Noor ▸ azan "$key" declined — ringer mode is $ringer');
+      _setPlaying(null);
+      return false;
+    }
+
+    if (key == 'silent' && !builtInFallback) return false;
     final AzanSound sound =
         key == 'silent' ? (_sound('makkah') ?? chosen) : chosen;
 
@@ -117,7 +139,7 @@ class AzanPlayer {
     //    channel carries, so a preview is an honest test of the reminder.
     if (sound.androidRaw != null && await AzaanAlarm.playNow(sound.androidRaw!)) {
       _setPlaying(key);
-      return;
+      return true;
     }
 
     // 2. No native player on this platform — or a native player that has just
@@ -136,13 +158,13 @@ class AzanPlayer {
         await _player.play(BytesSource(_beepWav()), volume: 1.0);
       } else {
         debugPrint('Noor ▸ azan preview unavailable on this platform: $key');
-        return;
+        return false;
       }
     } catch (error) {
       debugPrint('Noor ▸ azan preview failed: $error');
       if (!builtInFallback) {
         _setPlaying(null);
-        return;
+        return false;
       }
       // The test owes an answer even when both clips are out of reach: the
       // beep is not the Azaan, but it is proof the button is wired to
@@ -154,13 +176,14 @@ class AzanPlayer {
       } catch (beepError) {
         debugPrint('Noor ▸ azan preview beep failed: $beepError');
         _setPlaying(null);
-        return;
+        return false;
       }
     }
     _setPlaying(key);
     _player.onPlayerComplete.first.then((_) {
       if (_playingKey == key) _setPlaying(null);
     });
+    return true;
   }
 
   Future<void> stop() async {

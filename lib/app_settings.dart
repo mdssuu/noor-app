@@ -82,8 +82,10 @@ class AzanSound {
 
   /// File name (without extension) in `android/app/src/main/res/raw/`.
   ///
-  /// This is what the notification channel plays with the app closed, and what
-  /// the alarm-stream fallback plays when the phone is on silent.
+  /// This is what the notification channel plays with the app closed, and the
+  /// clip the alarm-stream player reaches for when no downloaded one exists.
+  /// It is *not* what a silenced phone plays: silence is answered for, on
+  /// every path, before any file is opened.
   final String? androidRaw;
 
   /// File name (with extension) inside the iOS app bundle. iOS cannot play a

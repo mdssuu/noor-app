@@ -31,15 +31,15 @@ import java.util.concurrent.CopyOnWriteArraySet
  * session, and both the volume keys and the notification's stop action come
  * down to [stop].
  *
- * The stream is the whole feature, and it is the alarm one: the single volume
- * position Android refuses to silence, so a prayer still sounds on a phone
- * left on silent — which is the promise every screen in this app says out
- * loud ("at alarm volume when the phone is on silent"). It was the ringtone
- * stream for a while, chosen when the stop condition was still "play until
- * silence" and the alarm stream's floor of 3 made that undeliverable.
- * [watchStreamVolume] stopped waiting for silence, and the stream was never
- * moved across with it, so a silenced phone stayed silent — exactly the case
- * a prayer reminder exists to cover.
+ * The stream is the alarm one, because it is the position that survives a
+ * ringer key — a clip on it is not muted by turning the phone down, and the
+ * rocker moves *it* while it sounds, which is what makes one volume press
+ * mean "stop". What the alarm stream does **not** decide is whether the
+ * app wants to be heard at all: that question is answered once, at the top
+ * of [play], by [ringerAllowsRecitation]. The two decisions were written as
+ * one for a while — the app promised out loud that it rang "at alarm volume
+ * when the phone is on silent" — until it was asked, plainly, not to: a
+ * silence somebody set on purpose is not a gap for a reminder to fill.
  *
  * The rocker keeps working regardless: while a clip sounds, Android routes
  * the volume keys to *that* stream, and [watchStreamVolume] reads any fall in
@@ -71,6 +71,29 @@ object AzaanAudio {
         "azaan3" -> R.raw.azaan3
         "beep" -> R.raw.beep
         else -> context.resources.getIdentifier(sound, "raw", context.packageName)
+    }
+
+    /**
+     * Whether the phone's own ringer says the recitation may sound.
+     *
+     * Silent and vibrate are answers a person gave on purpose, and a prayer
+     * reminder that overrules them is a reminder that has stopped being
+     * welcome — the alarm stream *can* play through both, which is precisely
+     * why the choice cannot be left to the stream. Asked in one place so the
+     * exact-alarm receiver (which has no Dart side to consult), the
+     * foreground service and the "Test Azaan" button cannot end up disagreeing.
+     *
+     * Anything unreadable answers `true`: a ringer mode this build fails to
+     * ask about must not be able to take a prayer away. `play` asks again,
+     * because [AzaanAlarmReceiver] has usually asked first and the two must
+     * not drift apart.
+     */
+    fun ringerAllowsRecitation(context: Context): Boolean = try {
+        val audio = context.applicationContext
+            .getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        audio == null || audio.ringerMode == AudioManager.RINGER_MODE_NORMAL
+    } catch (_: Exception) {
+        true
     }
 
     /**
@@ -109,14 +132,28 @@ object AzaanAudio {
 
     /**
      * Starts [sound] at the alarm volume — the one volume the rocker can
-     * actually reach while it plays, and the one no ringer mode takes away. Returns false when the resource is missing or the
-     * decoder refuses it, so callers can fall back rather than report success
-     * for silence. [onStopped] fires when the clip finishes or errors out —
-     * the foreground service uses it to retire itself.
+     * actually reach while it plays, and the one no ringer mode takes away.
+     * Returns false when the resource is missing, the decoder refuses it, or
+     * [ringerAllowsRecitation] says the phone is silenced, so callers can
+     * fall back rather than report success for silence. [onStopped] fires
+     * when the clip finishes or errors out — the foreground service uses it
+     * to retire itself.
      */
     @Synchronized
     fun play(context: Context, sound: String, onStopped: (() -> Unit)? = null): Boolean {
         val app = context.applicationContext
+
+        // Silenced means silenced. The alarm stream would happily play over
+        // this — that is what an alarm stream is for — so the refusal has to
+        // live here, where every path through the app meets it. Declining
+        // *before* touching the player means no wake lock, no volume watcher
+        // and, for the service, a `false` that retires it the same way a
+        // missing clip does.
+        if (!ringerAllowsRecitation(app)) {
+            Log.i(TAG, "phone is not on the normal ringer — recitation declined, the reminder stays silent")
+            notifyEnded()
+            return false
+        }
 
         // The owner's clip first. A file sitting in filesDir *is* the answer
         // to "what should sound", and unlike a Dart-side player it is

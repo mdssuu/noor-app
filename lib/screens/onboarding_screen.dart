@@ -252,7 +252,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             children: <Widget>[
               _bullet(Icons.campaign_outlined,
-                  'The Azaan rings at your masjid\'s own Jamaat time — and can sound even on a silent phone.'),
+                  'The Azaan rings at your masjid\'s own Jamaat time — at alarm volume, and never over a phone you have silenced.'),
               const SizedBox(height: 12),
               _bullet(Icons.explore_outlined,
                   'Qibla, tasbeeh, the Hijri calendar and a salah streak — all one tap from Home.'),

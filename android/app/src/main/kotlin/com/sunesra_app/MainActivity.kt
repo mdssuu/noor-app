@@ -1,7 +1,9 @@
 package com.sunesra_app
 
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -50,6 +52,10 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CANCEL_RANGE = "cancelRange"
         private const val METHOD_PLAY_NOW = "playNow"
         private const val METHOD_STOP = "stop"
+        // The reader's own ringer switch, read from Dart so a preview can
+        // decline *before* it starts instead of falling through to the remote
+        // clip. See `AzaanAlarm.ringerMode`.
+        private const val METHOD_RINGER_MODE = "ringerMode"
         private const val METHOD_CAN_SCHEDULE_EXACT = "canScheduleExact"
         private const val METHOD_ALARM_LEDGER = "alarmLedger"
         private const val METHOD_ARE_NOTIFICATIONS_ENABLED = "areNotificationsEnabled"
@@ -201,11 +207,34 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
-                // The preview must not consult the ringer mode: the user
-                // pressed the button to *hear* it, whatever the phone is set to.
+                // The preview asks this side the same question as a prayer
+                // does — [AzaanAudio.play] declines on a silenced phone — so
+                // there is no version of this call that rings anyway. What
+                // Dart needs is the *reason*, and it fetches that from
+                // METHOD_RINGER_MODE before it dials, so a reader who pressed
+                // test on silent hears a sentence rather than a clip that
+                // never arrives.
                 METHOD_PLAY_NOW -> {
                     val sound = call.argument<String>("sound")
                     result.success(!sound.isNullOrBlank() && AzaanAudio.play(this, sound))
+                }
+
+                // The reader's own ringer switch, as a string Dart can read
+                // without knowing Android's constants. Asked for one reason:
+                // a preview that learned "silent" by getting `false` back
+                // would fall through to the remote copy and keep a stop
+                // button lit for a clip nobody can hear. `null` — no service
+                // to ask — answers "normal", so the guard can never block a
+                // platform that has nothing to guard.
+                METHOD_RINGER_MODE -> {
+                    val audio = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    result.success(
+                        when (audio?.ringerMode) {
+                            AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
+                            AudioManager.RINGER_MODE_SILENT -> "silent"
+                            else -> "normal"
+                        }
+                    )
                 }
 
                 // Dart is the one asking, so Dart does not need telling — and
