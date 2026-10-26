@@ -1117,10 +1117,10 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
 
   /// The board's own Jamaat for [_next], when the masjid publishes one.
   ///
-  /// Card B counts down to this — the moment the reader will stand in
-  /// sujood — while *which* prayer is next stays on the official clock: a
-  /// Jamaat may move the number card B runs down to, never the moment the
-  /// hero switches prayers.
+  /// Card B prints this under its big Awwal — the moment the reader will
+  /// stand in sujood — while *which* prayer is next stays on the official
+  /// clock: a Jamaat may move the number card B prints small, never the
+  /// moment the hero switches prayers.
   DateTime? _nextJamaat;
 
   /// Today's makruh (Zawal) window, carried from the same recompute so
@@ -1265,7 +1265,8 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
     prev ??= _beforeFajr(now);
 
     // The board's own moment for the prayer due next, when it publishes
-    // one: what card B runs down to, and nothing more.
+    // one: the small clock card B prints under its Awwal, and nothing
+    // more.
     final DateTime? nextJamaat = quoted == null
         ? null
         : nextKey == null
@@ -1682,20 +1683,28 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
 
   /// Card B — the white one: what is due next — its name and the pair the
   /// reader plans by: the Awwal the official clock opens the prayer at,
-  /// and the board's own big Jamaat under it. Both clocks together, and
-  /// nothing ticking — card A's number already counts; a second one would
-  /// only compete with it. The card renders only where those two clocks
-  /// are actually two (see [_boardQuotesAnotherTime]).
+  /// carrying the big line, and the board's own Jamaat under it, small.
+  /// Both clocks together, and nothing ticking — card A's number already
+  /// counts; a second one would only compete with it. The card renders
+  /// only where those two clocks are actually two (see
+  /// [_boardQuotesAnotherTime]).
+  ///
+  /// The Awwal leads because it is the reader's own clock: the official
+  /// opening is the instant the namaz begins wherever the reader stands,
+  /// and it is the number the day is planned around. A favourite masjid's
+  /// Jamaat is a *second* reading of the same prayer — how that one board
+  /// will pray — which is why it sits under the Awwal in the small type
+  /// rather than over it. Reversed, the card would answer "when does this
+  /// begin?" with a time that belongs to one building.
   Widget _nextCard({
     required _HeroEntry? next,
     required AppSettings settings,
   }) {
     final DateTime? jamaatAt = _nextJamaat;
-    final DateTime? runsTo = jamaatAt ?? next?.at;
     // The Awwal — when this prayer opens on the official clock: the same
     // instant card A names the End of the prayer before it, said here in
     // the next prayer's own voice because both of its times belong
-    // together on one card.
+    // together on one card. It takes the big number.
     final DateTime? awwalAt = _nextCalc ?? next?.at;
 
     return Container(
@@ -1769,7 +1778,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
               // wonder whether it is the opening or the Jamaat, and the
               // reference design labels its clock exactly this way.
               Text(
-                'Jamaat',
+                'Awwal',
                 maxLines: 1,
                 style: GoogleFonts.outfit(
                   fontSize: 9.5,
@@ -1780,7 +1789,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
               ),
               const SizedBox(height: 1),
               Text(
-                runsTo == null ? '--:--' : settings.format(runsTo),
+                awwalAt == null ? '--:--' : settings.format(awwalAt),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
@@ -1794,15 +1803,15 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 ),
               ),
               const SizedBox(height: 6),
-              // The Awwal under the Jamaat — the prayer's two ends in one
-              // place: opens at this official clock, stands in sujood at
-              // the big one. The seconds chip is gone by request: the
-              // clock itself says when, and the ticking number belongs to
-              // card A alone.
+              // The Jamaat under the Awwal — the prayer's two ends in one
+              // place: it opens at the big clock wherever the reader
+              // stands, and this one board prays at the small one. The
+              // seconds chip is gone by request: the clock itself says
+              // when, and the ticking number belongs to card A alone.
               Text(
-                awwalAt == null
-                    ? 'Awwal —'
-                    : 'Awwal ${settings.format(awwalAt)}',
+                jamaatAt == null
+                    ? 'Jamaat —'
+                    : 'Jamaat ${settings.format(jamaatAt)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(

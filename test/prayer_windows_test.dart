@@ -379,20 +379,22 @@ void main() {
       ));
 
       expect(find.textContaining('Jamaat:'), findsNothing,
-          reason: 'the big time *is* the Jamaat');
+          reason: 'the pair speaks in labels — no colon, no second header');
 
-      // What it carries: the pair — Awwal and Jamaat — side by side…
+      // What it carries: the Awwal the reader plans by, big, with the
+      // board's Jamaat small beneath it…
       final DateTime jamaatAt =
           DateTime(onDay.year, onDay.month, onDay.day, 17, 45);
-      expect(find.text('Jamaat'), findsOneWidget,
+      expect(find.text('Awwal'), findsOneWidget,
           reason: 'the big clock names itself');
-      expect(find.text(settings.format(jamaatAt)), findsOneWidget);
-      expect(find.text('Awwal ${settings.format(day.times['asr']!)}'),
-          findsOneWidget,
-          reason: 'and the Awwal beneath it — both of the prayer’s times');
+      expect(find.text(settings.format(day.times['asr']!)), findsOneWidget,
+          reason: 'and reads the official opening — the reader’s own clock');
+      expect(find.text('Jamaat ${settings.format(jamaatAt)}'), findsOneWidget,
+          reason: 'with the board’s Jamaat beneath it — both prayer times');
 
       // …and no second ticking number: card A's countdown stands alone.
-      expect(find.text('in ${tick(jamaatAt.difference(during))}'),
+      expect(
+          find.text('in ${tick(day.times['asr']!.difference(during))}'),
           findsNothing,
           reason: 'the seconds chip is gone — the clock already says when');
 
@@ -424,7 +426,7 @@ void main() {
           reason: 'there is nothing new for the second card to say');
       expect(find.text(settings.format(asr)), findsNothing,
           reason: 'the End clock may exist exactly once — on card A');
-      expect(find.text('Awwal ${settings.format(asr)}'), findsNothing,
+      expect(find.text('Awwal'), findsNothing,
           reason: 'the pair has nowhere to stand without card B');
       expect(find.text('in ${tick(asr.difference(during))}'), findsNothing,
           reason: 'a second ticking number identical to card A’s');
@@ -523,17 +525,20 @@ void main() {
           findsOneWidget,
           reason: 'and the countdown runs to that official End');
 
-      // Card B keeps its own promise: it quotes the masjid's own Fajr
-      // Jamaat on the board — 05:00, an hour before the calc — beside the
-      // Awwal tomorrow's Fajr actually opens at, and counts nothing.
+      // Card B keeps its own promise: tomorrow's Fajr with the Awwal it
+      // actually opens at in the big type, the masjid's own board Jamaat
+      // — 05:00, an hour before the calc — small beneath it, and nothing
+      // ticking.
       final DateTime fajrJamaat = DateTime(day.fajrTomorrow.year,
           day.fajrTomorrow.month, day.fajrTomorrow.day, 5, 0);
       expect(find.text('Fajr (tomorrow)'), findsOneWidget);
-      expect(find.text(settings.format(fajrJamaat)), findsOneWidget,
-          reason: 'the big clock is the board’s own Jamaat');
-      expect(find.text('Awwal ${settings.format(day.fajrTomorrow)}'),
+      expect(find.text('Awwal'), findsOneWidget,
+          reason: 'the big clock names the opening');
+      expect(find.text(settings.format(day.fajrTomorrow)), findsOneWidget,
+          reason: 'and reads the official Awwal tomorrow’s Fajr opens at');
+      expect(find.text('Jamaat ${settings.format(fajrJamaat)}'),
           findsOneWidget,
-          reason: 'and the pair’s other clock is the official Awwal');
+          reason: 'with the board’s own Jamaat small beneath it');
       expect(find.text('in ${tick(fajrJamaat.difference(during))}'),
           findsNothing,
           reason: 'no second countdown — the chip is gone by request');
