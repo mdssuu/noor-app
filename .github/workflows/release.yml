@@ -155,13 +155,21 @@ jobs:
       # Master push par: rolling release. Iska matlab - Releases page par hamesha
       # latest APK maujood, aur uska link kabhi nahi badalta:
       #   https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk
+      #
+      # Ye release prerelease NAHI hai, aur wajah ye hai: GitHub prerelease ko
+      # "Latest" maanna band kar deta hai - /releases/latest inkaar kar deta
+      # hai aur Releases page par use ek alag tab me dhakka deta hai, jahan ek
+      # aam user kabhi nahi jaata. Matlab har push ke baad APK technically
+      # maujood hota hai par kisi ko dikhta nahi. `make_latest: true` ise
+      # repository ka latest release banaye rakhta hai.
       - name: Update the rolling "Latest APK" release
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest APK (master)
-          prerelease: true
+          prerelease: false
+          make_latest: true
           files: build/app/outputs/flutter-apk/noor-masjid-time-latest.apk
           body: |
             Har `master` push par ye release update hoti hai.
@@ -170,8 +178,6 @@ jobs:
 
             Version: `${{ github.sha }}` se build hua hai
             (commit: https://github.com/mdssuu/noor-app/commit/${{ github.sha }}).
-
-            Official versioned releases ke liye [tags](https://github.com/mdssuu/noor-app/releases) dekho.
 
       # Purana "noor-apk me publish" step hata diya gaya: naam ki repo
       # (mdssuu/noor-apk) exist hi nahi karti, har run wahan 404 par chup-chaap
