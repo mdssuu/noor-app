@@ -51,6 +51,10 @@ class AzaanPlaybackService : Service() {
             return START_NOT_STICKY
         }
 
+        // From here on the service exists to hold a recitation, so a stop
+        // request is worth sending to it.
+        up = true
+
         val title = intent.getStringExtra(EXTRA_TITLE)
             ?.takeIf { it.isNotBlank() }
             ?: "Azaan"
@@ -98,6 +102,7 @@ class AzaanPlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        up = false
         AzaanAudio.stop()
         releaseSession()
         super.onDestroy()
@@ -305,6 +310,20 @@ class AzaanPlaybackService : Service() {
         const val EXTRA_TITLE = "title"
 
         /**
+         * Set while an instance is actually up holding a recitation.
+         *
+         * It exists to keep a stop from being *dispatched* when there is
+         * nothing to stop. `startService(ACTION_STOP)` on a service that is
+         * not running does not stop anything: it creates one, and that fresh
+         * instance's first act is `AzaanAudio.stop()` — arriving a beat after
+         * it was asked for, on whatever has started playing in between. The
+         * Settings preview's own stop went through here, which is how a clip
+         * could be started and then torn down 20 ms later, every single time.
+         */
+        @Volatile
+        private var up = false
+
+        /**
          * Brings the recitation down wherever it is sounding, from any
          * context — the recitation screen, the activity's volume key handler,
          * the playback notification.
@@ -316,6 +335,7 @@ class AzaanPlaybackService : Service() {
          * have the process killed for not doing so within five seconds.
          */
         fun stopFromAnywhere(context: Context) {
+            if (!up) return
             AzaanAudio.stop()
             val app = context.applicationContext
             val intent = Intent(app, AzaanPlaybackService::class.java).setAction(ACTION_STOP)

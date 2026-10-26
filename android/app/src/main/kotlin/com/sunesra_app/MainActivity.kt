@@ -208,8 +208,24 @@ class MainActivity : FlutterActivity() {
                     result.success(!sound.isNullOrBlank() && AzaanAudio.play(this, sound))
                 }
 
+                // Dart is the one asking, so Dart does not need telling — and
+                // telling it is not free. [stopAzaan] echoes `stopRequested`
+                // back over the channel; that reply is delivered one frame
+                // later, *after* whatever Dart starts next, and its handler
+                // stops again. A preview was therefore torn down 20 ms after
+                // it began, which is how "Test Azaan" could report a running
+                // player while making a sound nobody could have heard. The
+                // synchronous stop below is the whole answer here; the echo
+                // belongs to stops that started on this side, where the chain
+                // upward does not already know.
+                //
+                // The service is asked to stand down too — its "STOP AZAN"
+                // notification must not outlive the clip — but only when it is
+                // actually up, which is what makes that dispatch harmless:
+                // see [AzaanPlaybackService.stopFromAnywhere].
                 METHOD_STOP -> {
-                    stopAzaan()
+                    AzaanAudio.stop()
+                    stopAzaanService()
                     result.success(null)
                 }
 
