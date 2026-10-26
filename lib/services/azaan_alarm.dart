@@ -1,20 +1,26 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// Bridge to the native alarm-stream player in `MainActivity.kt`.
+/// Bridge to the native ringer-stream player in `MainActivity.kt`.
 ///
 /// This is the **only** audible path a prayer reminder has. The reminder
-/// notification posts to a channel with no sound — on `RINGER_MODE_SILENT` /
-/// `VIBRATE` Android mutes every notification sound anyway, so a recitation
-/// carried by the channel would never be heard. Routing the clip through
-/// `AudioAttributes.USAGE_ALARM` puts it on the one stream a ringer key does
-/// not mute, and that turns out to make the *app* the party that decides
-/// whether a silenced reader hears anything: [ringerMode] reads the switch,
-/// and `AzaanAudio.play` refuses when the answer is not `normal`. Because
-/// exactly one thing makes the noise, a volume key during playback always
-/// means "stop it" — [MainActivity]'s key handler in front, the playback
-/// service's media session otherwise, and the "STOP AZAN" action on its
-/// notification when the phone is locked.
+/// notification posts to a channel with no sound, so the recitation is the
+/// whole of what a reader hears. It rides `USAGE_NOTIFICATION_RINGTONE` —
+/// the reader's own ringer — because that is their choice, not the app's:
+/// one slider sets how loud a prayer may be, and it is the slider the volume
+/// keys move, so the rocker is already pointing at whatever is sounding.
+///
+/// It used to ride `USAGE_ALARM`, which was loud and deliberately deaf to
+/// the rocker; the reason that had to go is a user's own complaint, that no
+/// volume button could stop it. With one stream there is one number in play.
+/// What a stream cannot be asked is whether the app may be heard *at all* —
+/// that is answered by [ringerMode] and by `AzaanAudio.play`, which refuses
+/// unless the switch reads `normal`, so a silence somebody set on purpose is
+/// never a gap a reminder fills.
+///
+/// A key still reaches the recitation where a slider cannot: [MainActivity]'s
+/// key handler when the app is up, `AzaanActivity` over the lock screen, and
+/// the "STOP AZAN" action on the card in the shade.
 ///
 /// The clip leaves at the instant the reader chose — the prayer time less
 /// whatever the chips say, `0` when they say "At time". The chips are not a
@@ -89,7 +95,7 @@ class AzaanAlarm {
     });
   }
 
-  /// Arms one exact alarm at [at] that plays [raw] on the alarm stream.
+  /// Arms one exact alarm at [at] that plays [raw] on the reader's ringer.
   /// [title] only labels the foreground notification Android insists on while
   /// the recitation is running.
   ///
@@ -134,11 +140,11 @@ class AzaanAlarm {
   static Future<void> cancelRange(int from, int to) =>
       _call('cancelRange', <String, Object?>{'from': from, 'to': to});
 
-  /// Plays [raw] right now on the alarm stream — the "Test Azaan" button and
-  /// the in-app preview. Returns `false` when the platform has no native side,
-  /// which is the caller's cue to fall back to the remote clip, and when the
-  /// phone is silenced, which is not: [ringerMode] is asked before dialling
-  /// precisely so that case never reaches the fallback.
+  /// Plays [raw] right now on the reader's ringer — the "Test Azaan" button
+  /// and the in-app preview. Returns `false` when the platform has no native
+  /// side, which is the caller's cue to fall back to the remote clip, and
+  /// when the phone is silenced, which is not: [ringerMode] is asked before
+  /// dialling precisely so that case never reaches the fallback.
   static Future<bool> playNow(String raw) async {
     install();
     return await _call('playNow', <String, Object?>{'sound': raw}) == true;
@@ -146,12 +152,14 @@ class AzaanAlarm {
 
   /// The phone's own ringer switch: `normal`, `vibrate` or `silent`.
   ///
-  /// The one question worth asking before any noise is made. The alarm stream
-  /// a recitation rides is deliberately the stream a ringer key does not
-  /// mute — which means nothing downstream can be trusted to stay quiet on a
-  /// phone somebody switched off, so the switching off is checked here
-  /// instead. `normal` is also the answer where there is no Android side to
-  /// ask (desktop, web, tests): a guard must never be able to block a
+  /// The one question worth asking before any noise is made. The recitation
+  /// now rides the ringer's own stream, so a phone left on silent or vibrate
+  /// would mute it anyway — which is the answer arriving twice, not once, and
+  /// is exactly why it is checked here rather than downstream: the refusal
+  /// has to happen before the player is touched, or a silenced phone would be
+  /// left holding a wake lock and a foreground service against a stream
+  /// carrying nothing. `normal` is also the answer where there is no Android
+  /// side to ask (desktop, web, tests): a guard must never be able to block a
   /// platform that has nothing to guard.
   static Future<String> ringerMode() async {
     install();
@@ -200,7 +208,7 @@ class AzaanAlarm {
   /// Whether Android is willing to show this app's notifications at all.
   ///
   /// The alarms and the recitation are unaffected by it — they run through
-  /// AlarmManager and the alarm stream — so a denied notification permission
+  /// AlarmManager and the recitation — so a denied notification permission
   /// produces the worst possible combination: the phone recites at the right
   /// minute with nothing on screen to explain why, and no banner to dismiss.
   /// The app asks instead of assuming.
@@ -248,11 +256,12 @@ class AzaanAlarm {
   ///
   /// That screen is the whole of the volume-key fix with the phone locked: a
   /// key event reaches the focused window and nothing else, so without it the
-  /// rocker has nothing to land on and an Azaan on the alarm stream — the one
-  /// stream Android refuses to silence — plays out unattended. Android 14
-  /// made this a switch the user has to throw, so it is asked for like any
-  /// other permission. `false` also means "not applicable" (pre-14), where
-  /// declaring it in the manifest is enough.
+  /// rocker has nothing to land on — and a ring volume already at zero is the
+  /// case where even watching the streams helps not at all, because the key
+  /// would move nothing for anyone to notice. Android 14 made this a switch
+  /// the user has to throw, so it is asked for like any other permission.
+  /// `false` also means "not applicable" (pre-14), where declaring it in the
+  /// manifest is enough.
   static Future<bool> canUseFullScreenIntent() async =>
       await _call('canUseFullScreenIntent') == true;
 

@@ -103,8 +103,11 @@ void main() {
     expect(settings, contains('Silence is still yours'),
         reason: 'the promise is replaced, not deleted — a reader has to be '
             'told what happens instead.');
-    expect(audio, contains('AudioAttributes.USAGE_ALARM'),
-        reason: 'the stream is unchanged by any of this: it is what the '
-            'rocker reaches and what an app-closed alarm rides.');
+    expect(audio, contains('AudioAttributes.USAGE_NOTIFICATION_RINGTONE'),
+        reason: 'the stream is the reader\u2019s own ringer, so one slider '
+            'sets how loud a prayer may be and the volume keys are already '
+            'pointing at it — which is the whole of why the rocker used to be '
+            'powerless: it moved the ring volume while the clip played '
+            'somewhere else.');
   });
 }

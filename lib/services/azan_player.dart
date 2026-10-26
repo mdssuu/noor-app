@@ -15,13 +15,14 @@ import 'azaan_alarm.dart';
 ///   * `playSelected()` — fired when the user taps an Azan reminder
 ///     notification while the app is in the foreground.
 ///
-/// Playback goes through the **native alarm-stream player** first, so what the
+/// Playback goes through the **native ringer-stream player** first, so what the
 /// preview plays is byte-for-byte what the reminder plays, at the same volume.
 /// It does *not* play over a phone its reader has put on silent or vibrate —
-/// the alarm stream would allow it, and declining anyway is the whole of what
-/// "silent means silent" costs. `audioplayers` is only the fallback for
-/// platforms with no native bundle (desktop, web, tests) — which is also why
-/// each [AzanSound] still carries a remote [AzanSound.url].
+/// the ringer's own stream would be muted anyway, and declining before the
+/// player is touched is the whole of what "silent means silent" costs.
+/// `audioplayers` is only the fallback for platforms with no native bundle
+/// (desktop, web, tests) — which is also why each [AzanSound] still carries a
+/// remote [AzanSound.url].
 class AzanPlayer {
   AzanPlayer._() {
     install();
@@ -33,10 +34,10 @@ class AzanPlayer {
   /// clip this side holds — a volume key taken over by the platform side, or
   /// the recitation screen the alarm raises over the lock screen.
   ///
-  /// Playback has two homes: the native alarm-stream player and this fallback
-  /// one, which is what runs where the native player does not. A stop that
-  /// reaches only the first leaves the second sounding, which is one way "the
-  /// volume button does nothing" came about.
+  /// Playback has two homes: the native ringer-stream player and this
+  /// fallback one, which is what runs where the native player does not. A
+  /// stop that reaches only the first leaves the second sounding, which is
+  /// one way "the volume button does nothing" came about.
   void install() {
     AzaanAlarm.onPlaybackFinished = () => _setPlaying(null);
     AzaanAlarm.onStopRequested = () => unawaited(stop());
@@ -135,7 +136,7 @@ class AzanPlayer {
     final AzanSound sound =
         key == 'silent' ? (_sound('makkah') ?? chosen) : chosen;
 
-    // 1. The bundled clip on the alarm stream — the same file the notification
+    // 1. The bundled clip on the ringer stream — the same file the notification
     //    channel carries, so a preview is an honest test of the reminder.
     if (sound.androidRaw != null && await AzaanAlarm.playNow(sound.androidRaw!)) {
       _setPlaying(key);

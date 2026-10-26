@@ -98,8 +98,7 @@ object AzaanAlarms {
                 //
                 // The alternative was refused at the exact second the prayer
                 // arrived — "Abort background activity starts from <uid>",
-                // silently — leaving the Azaan sounding on the alarm stream,
-                // the one stream Android refuses to silence, with no window
+                // silently — leaving the Azaan playing on, with no window
                 // anywhere for a volume key to reach.
                 am.setAlarmClock(
                     AlarmManager.AlarmClockInfo(atMs, showIntent(app, title)),

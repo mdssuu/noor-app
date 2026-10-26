@@ -12,7 +12,7 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * Plays the Azaan clip, on the **alarm** stream.
+ * Plays the Azaan clip, on the **ringtone** stream — the reader's own ringer.
  *
  * The clip comes from one of two places, and the choice is made here so that
  * every caller keeps asking the same question:
@@ -31,19 +31,22 @@ import java.util.concurrent.CopyOnWriteArraySet
  * session, and both the volume keys and the notification's stop action come
  * down to [stop].
  *
- * The stream is the alarm one, because it is the position that survives a
- * ringer key — a clip on it is not muted by turning the phone down, and the
- * rocker moves *it* while it sounds, which is what makes one volume press
- * mean "stop". What the alarm stream does **not** decide is whether the
- * app wants to be heard at all: that question is answered once, at the top
- * of [play], by [ringerAllowsRecitation]. The two decisions were written as
- * one for a while — the app promised out loud that it rang "at alarm volume
- * when the phone is on silent" — until it was asked, plainly, not to: a
- * silence somebody set on purpose is not a gap for a reminder to fill.
+ * The stream is the ringer's own, and that is the reader's decision, not the
+ * app's: one slider then sets how loud a prayer is allowed to be, and it is
+ * the slider the volume keys move, so the rocker is already pointing at
+ * whatever is sounding. It used to be `USAGE_ALARM` — loud, and deliberately
+ * deaf to the rocker — which is why "the volume button cannot stop it" had to
+ * be answered twice over, by [watchStreamVolume] and by the recitation screen.
+ * With one stream there is only one number in play, and the pair still
+ * answers the case that stream cannot: a ringer at zero.
  *
- * The rocker keeps working regardless: while a clip sounds, Android routes
- * the volume keys to *that* stream, and [watchStreamVolume] reads any fall in
- * its level as the press.
+ * What the stream does **not** decide is whether the app wants to be heard at
+ * all: that question is answered once, at the top of [play], by
+ * [ringerAllowsRecitation]. The two were written as one for a while — the app
+ * promised out loud that it rang "at alarm volume when the phone is on
+ * silent" — until it was asked, plainly, not to: a silence somebody set on
+ * purpose is not a gap for a reminder to fill. Now the stream says the same
+ * thing the gate says, and neither alone is left holding the answer.
  */
 object AzaanAudio {
 
@@ -78,10 +81,14 @@ object AzaanAudio {
      *
      * Silent and vibrate are answers a person gave on purpose, and a prayer
      * reminder that overrules them is a reminder that has stopped being
-     * welcome — the alarm stream *can* play through both, which is precisely
-     * why the choice cannot be left to the stream. Asked in one place so the
-     * exact-alarm receiver (which has no Dart side to consult), the
-     * foreground service and the "Test Azaan" button cannot end up disagreeing.
+     * welcome. The clip now rides the ringer's own stream, so a phone on
+     * either would mute it anyway — which is exactly why the choice cannot be
+     * left to the stream: the refusal has to happen *before* the player is
+     * touched, or a silent phone would be left holding a wake lock, a volume
+     * watcher and a foreground service against a stream carrying nothing.
+     * Asked in one place so the exact-alarm receiver (which has no Dart side
+     * to consult), the foreground service and the "Test Azaan" button cannot
+     * end up disagreeing.
      *
      * Anything unreadable answers `true`: a ringer mode this build fails to
      * ask about must not be able to take a prayer away. `play` asks again,
@@ -133,9 +140,9 @@ object AzaanAudio {
     }
 
     /**
-     * Starts [sound] at the alarm volume — the one volume the rocker can
-     * actually reach while it plays, and the one no ringer mode takes away.
-     * Returns false when the resource is missing, the decoder refuses it, or
+     * Starts [sound] at the ring volume — the reader's own slider, and the
+     * one the volume keys move while it plays. Returns false when the
+     * resource is missing, the decoder refuses it, or
      * [ringerAllowsRecitation] says the phone is silenced, so callers can
      * fall back rather than report success for silence. [onStopped] fires
      * when the clip finishes or errors out — the foreground service uses it
@@ -145,12 +152,14 @@ object AzaanAudio {
     fun play(context: Context, sound: String, onStopped: (() -> Unit)? = null): Boolean {
         val app = context.applicationContext
 
-        // Silenced means silenced. The alarm stream would happily play over
-        // this — that is what an alarm stream is for — so the refusal has to
-        // live here, where every path through the app meets it. Declining
-        // *before* touching the player means no wake lock, no volume watcher
-        // and, for the service, a `false` that retires it the same way a
-        // missing clip does.
+        // Silenced means silenced, and this is the side that does the work:
+        // declining *before* touching the player leaves no wake lock, no
+        // volume watcher and — for the service — a `false` that retires it
+        // the same way a missing clip does. The stream agrees, and that
+        // agreement is new: on this usage a phone left on vibrate would have
+        // nothing to sound anyway. Two answers to one question, so that
+        // neither a future stream change nor a future OEM shortcut can
+        // reopen it.
         if (!ringerAllowsRecitation(app)) {
             Log.i(TAG, "phone is not on the normal ringer — recitation declined, the reminder stays silent")
             notifyEnded()
@@ -181,7 +190,7 @@ object AzaanAudio {
         try {
             mp.setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
             )
@@ -230,9 +239,9 @@ object AzaanAudio {
         Log.i(
             TAG,
             if (downloaded) {
-                "recitation on the alarm stream — the owner's clip for $sound"
+                "recitation on the ring volume — the owner's clip for $sound"
             } else {
-                "recitation on the alarm stream"
+                "recitation on the ring volume"
             }
         )
         watchStreamVolume(app)
@@ -248,22 +257,26 @@ object AzaanAudio {
      * **Which stream.** It read only `STREAM_ALARM`, on the theory that the
      * rocker moves whatever is sounding. It does not: Android picks the
      * stream a volume key adjusts from its own idea of what is *active*,
-     * which is the ringtone almost always, and the alarm stream — the one
-     * position a ringer key cannot reach — is precisely the one the key never
-     * picks. A press therefore changed a number nobody was reading, and the
-     * Azaan played to the end. Every stream a key could plausibly move is
-     * watched instead: alarm, ring, notification and media. Notification is
-     * not redundant with ring either — it is aliased to it on most builds,
-     * so it moves together and whichever is read first ends it.
+     * which is the ringtone almost always. The clip has since moved onto
+     * that very stream — the reader's own ringer — so the press now lands on
+     * the number the Azaan is actually playing at, which is the nicest
+     * answer available: one slider, one key, one sound. The other three are
+     * kept anyway. Builds differ in what they call active, a headset or a
+     * locked screen can shift it, and reading a stream that did not move
+     * costs nothing. Notification is not redundant with ring either — it is
+     * aliased to it on most builds, so it moves together and whichever is
+     * read first ends it; alarm stays in the set because some builds route
+     * the key there regardless of what is playing.
      *
      * **Which direction.** It waited for a *fall*, because the clip is meant
      * to be quieted. But the reader who reaches for the rocker at 5 a.m. is
      * not adjusting anything — they want the thing gone, and they have said
      * so plainly: the button should turn it off, strictly. Any movement of
      * any watched stream, up or down, reads as that press. The floor is not
-     * the question and never was: waiting for silence would have asked for
-     * fifteen presses and still could not be kept, since the alarm stream
-     * bottoms out above zero without an app-op.
+     * the question and never was: a ring volume already at zero changes
+     * nothing under a downward press, and that is precisely the case the
+     * recitation screen exists for — a key event reaches a focused window
+     * even when it would move no number at all.
      *
      * It is polled, not observed, and that is not laziness. The obvious
      * observer — a [android.database.ContentObserver] on the `volume_alarm`
@@ -274,10 +287,6 @@ object AzaanAudio {
      * rocker's own handling never sends. Asking [AudioManager] directly
      * answers the only question that matters, on every OEM, and often enough
      * that a keypress is answered before the finger has lifted.
-     *
-     * The service's media session takes the key first where the platform
-     * lets it ([MediaSession.FLAG_HANDLES_MEDIA_VOLUME]); this is the answer
-     * for the device that routes the key to the audio service instead.
      */
     private fun watchStreamVolume(context: Context) {
         val app = context.applicationContext
@@ -287,6 +296,9 @@ object AzaanAudio {
         } catch (_: Exception) {
             return
         }
+        // Every stream a volume key could plausibly be sent to. `ring` is the
+        // one the clip now plays on, so it is also the one the key changes;
+        // the rest are insurance against a build that thinks otherwise.
         val watched = intArrayOf(
             AudioManager.STREAM_ALARM,
             AudioManager.STREAM_RING,

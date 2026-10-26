@@ -82,9 +82,10 @@ class AzaanActivity : Activity() {
     }
 
     /**
-     * The whole point of the screen: a volume press is the mute the user
-     * reaches for, so it is taken over and the playback is torn down instead
-     * of Android quietly moving the alarm volume of a clip that keeps going.
+     * The whole point of the screen: a volume press is not a request for a
+     * softer Azaan, it is the mute the user reaches for — "strictly off" was
+     * the ask — so it is taken over and the playback is torn down rather than
+     * the phone lowering a number while the clip plays on.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {

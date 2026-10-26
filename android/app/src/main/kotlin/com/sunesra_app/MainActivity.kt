@@ -190,7 +190,7 @@ class MainActivity : FlutterActivity() {
                 // hand back bad-args on every call, and Dart's `_call` only
                 // debugPrints a PlatformException — so no range was ever
                 // retired and an un-starred masjid kept reciting from the
-                // alarm stream long after its notification was cancelled.
+                // reciting long after its notification was cancelled.
                 METHOD_CANCEL_RANGE -> {
                     val from = call.argument<Int>("from")
                     val to = call.argument<Int>("to")
@@ -530,9 +530,12 @@ class MainActivity : FlutterActivity() {
      * The volume rocker silences a recitation the user did not ask for.
      *
      * A favourite masjid's Azaan can land in the middle of a namaz, on the
-     * alarm stream, which the rocker cannot silence — it only moves the alarm
-     * volume of a clip that keeps going. So while one is actually sounding,
-     * the key is taken over and the playback is torn down instead; with no
+     * reader's own ringer — which the rocker would happily adjust while the
+     * clip plays on. That is the wrong answer twice: the reader asked for
+     * *stop*, not for a volume, and a ringer already at zero changes nothing
+     * under a downward press, so there would be no answer at all. So while
+     * one is actually sounding, the key is taken over and the playback is
+     * torn down instead; with no
      * Azaan running the keys behave exactly as Android left them.
      *
      * This is the half that needs an activity in front. Nothing here runs

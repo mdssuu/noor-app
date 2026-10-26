@@ -252,7 +252,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             children: <Widget>[
               _bullet(Icons.campaign_outlined,
-                  'The Azaan rings at your masjid\'s own Jamaat time — at alarm volume, and never over a phone you have silenced.'),
+                  'The Azaan rings at your masjid\'s own Jamaat time — at your own ring volume, and never over a phone you have silenced.'),
               const SizedBox(height: 12),
               _bullet(Icons.explore_outlined,
                   'Qibla, tasbeeh, the Hijri calendar and a salah streak — all one tap from Home.'),
@@ -555,7 +555,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
       children: <Widget>[
         _heading('What should the Azaan sound like?',
-            'It rings through the alarm volume — the one your silent mode cannot mute.'),
+            'It rings through your own ring volume — the slider the volume keys move.'),
         const SizedBox(height: 14),
         GoldCard(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
