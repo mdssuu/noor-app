@@ -298,7 +298,7 @@ void main() {
   });
 
   group('every row carries its own bell', () {
-    testWidgets('one tap quiets the azan, the next stops the banner, the third brings it back',
+    testWidgets('the bell asks which of the three it wants, and arms that one',
         (WidgetTester tester) async {
       final AppSettings settings = await settingsWith('12');
       bellsOn(settings);
@@ -312,7 +312,13 @@ void main() {
 
       // Tap 1 — azan → silent: the recitation goes, the banner stays.
       await tester.tap(find.byIcon(Icons.notifications_active_outlined).first);
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mute'), findsOneWidget);
+
+      // Mute — the recitation goes, the banner stays.
+      await tester.tap(find.text('Mute'));
+      await tester.pumpAndSettle();
 
       expect(settings.bellModeFor('fajr'), kBellSilent);
       expect(settings.notifyOnFor('fajr'), isTrue,
@@ -322,7 +328,10 @@ void main() {
 
       // Tap 2 — silent → off: no banner either, the same switch Settings holds.
       await tester.tap(find.byIcon(Icons.notifications_outlined));
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Band'));
+      await tester.pumpAndSettle();
 
       expect(settings.bellModeFor('fajr'), kBellOff);
       expect(settings.notifyOnFor('fajr'), isFalse);
@@ -331,7 +340,10 @@ void main() {
 
       // Tap 3 — off → azan: the ring closes where it started.
       await tester.tap(find.byIcon(Icons.notifications_off_outlined));
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Azaan'));
+      await tester.pumpAndSettle();
 
       expect(settings.bellModeFor('fajr'), kBellAzan);
       expect(settings.notifyOnFor('fajr'), isTrue);
@@ -345,7 +357,7 @@ void main() {
       await tearDownCard(tester);
     });
 
-    testWidgets('a prayer Settings switched off shows the dead bell, and one tap revives it',
+    testWidgets('a prayer Settings switched off shows the dead bell, and asking revives it',
         (WidgetTester tester) async {
       final AppSettings settings = await settingsWith('12');
       bellsOn(settings);
@@ -356,7 +368,11 @@ void main() {
       expect(find.byIcon(Icons.notifications_off_outlined), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.notifications_off_outlined));
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Asking — the same dialog, now choosing Azaan back on.
+      await tester.tap(find.text('Azaan'));
+      await tester.pumpAndSettle();
 
       // Off walks into azan — both halves back on, on Home and in Settings.
       expect(settings.bellModeFor('asr'), kBellAzan);

@@ -695,6 +695,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                         GoogleFonts.outfit(fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
                   ),
                 ),
+                _hint(
+                  'Silence is the default now: nothing is scheduled until a '
+                  'reader asks for the Azaan — from the Home bell’s dialog or '
+                  'this screen.',
+                ),
                 if (_settings.notificationsEnabled) ...<Widget>[
                   Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
                   Padding(

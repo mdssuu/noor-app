@@ -21,6 +21,9 @@ import 'screens/home_extras.dart' show shareTodayTimes;
 /// three-state switch — azan, silent (banner without sound), off — walked
 /// one tap at a time; `off` is the same gate the Settings switch holds.
 ///
+/// The bell no longer walks that ring on its own — it opens a dialog (Azaan /
+/// Mute / Band) the reader answers, and only a real answer moves the bell.
+///
 /// This card always renders, even when the Firestore `masjids` collection is
 /// empty, so the home screen never looks blank.
 class TodayPrayerCard extends StatefulWidget {
@@ -149,10 +152,11 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   ///
   /// The glyph *is* the state: the active bell is a full azan (banner and
   /// recitation), the plain bell is the banner without any sound, and the
-  /// crossed one means nothing at all. Tapping walks the ring
-  /// azan → silent → off → azan, so the reader's own words map one tap to
-  /// one step: first "azaan band", then "notification bhi band", then both
-  /// back on.
+  /// crossed one means nothing at all. Tapping no longer walks the ring
+  /// azan → silent → off on its own — a silent tap is exactly the moment a
+  /// reader ends up with an azaan they never chose. Instead it *asks*, and
+  /// the reader answers the question the bell owes them: which of the three
+  /// they want, named in their own words.
   ///
   /// The re-arm rides one debounce, because every schedule pass retires all
   /// the alarms and builds them again, and that is not work worth doing
@@ -165,7 +169,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
       _ => Icons.notifications_off_outlined,
     };
     return InkWell(
-      onTap: () => _cycleBell(key),
+      onTap: () => _askBell(key),
       borderRadius: BorderRadius.circular(10),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -178,11 +182,100 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
     );
   }
 
-  void _cycleBell(String key) {
-    AppSettings.instance.cycleBellMode(key);
+  /// Asks which of the three the reader wants, and arms exactly that.
+  ///
+  /// Dismissing the question without picking — the backdrop, the gesture,
+  /// nothing — changes nothing at all, and the bell keeps the state it had.
+  /// The re-arm rides the same debounce the old tap-walk used, because every
+  /// schedule pass retires all the alarms and builds them again, and that is
+  /// not work worth doing per tap.
+  Future<void> _askBell(String key) async {
+    final String? picked = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => _bellDialog(context, key),
+    );
+    if (picked == null || !mounted) return;
+    AppSettings.instance.setBellMode(key, picked);
 
     _rescheduleTimer?.cancel();
     _rescheduleTimer = Timer(const Duration(milliseconds: 400), _reschedule);
+  }
+
+  /// The three answers, named the way the reader says them: **Azaan** rings
+  /// and shows a card, **Mute** shows the card without a sound, **Band** does
+  /// neither. Whatever is already in force is ticked, so the dialog opens as
+  /// a question about the present rather than a command over the future.
+  Widget _bellDialog(BuildContext context, String key) {
+    final String current = AppSettings.instance.bellModeFor(key);
+    final List<Widget> children = <Widget>[
+      _bellChoice(context, kBellAzan, 'Azaan', Icons.notifications_active_outlined,
+          'Card bhi, azaan bhi', current),
+      _bellChoice(context, kBellSilent, 'Mute', Icons.notifications_outlined,
+          'Card aayega, azaan nahi', current),
+      _bellChoice(context, kBellOff, 'Band', Icons.notifications_off_outlined,
+          'Na azaan, na card', current),
+    ];
+
+    return AlertDialog(
+      backgroundColor: NoorColors.cream,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      title: Text(
+        '${prayerByKey(key).label} bell',
+        style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: NoorColors.ink),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            'Azaan ka ye band hona chahiye?',
+            style: GoogleFonts.outfit(fontSize: 13, color: NoorColors.onGlassMuted),
+          ),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(
+            'Abhi nahi — band kar diya rakhta hai',
+            style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: NoorColors.muted),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// One answer of the bell's: its name, what it means in one line, and the
+  /// check that marks the one already in force. Tapping pops with the mode,
+  /// which is exactly what `setBellMode` takes.
+  Widget _bellChoice(
+    BuildContext context,
+    String mode,
+    String name,
+    IconData glyph,
+    String note,
+    String current,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(glyph, size: 22, color: NoorColors.emeraldDeep),
+        title: Text(
+          name,
+          style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: NoorColors.ink),
+        ),
+        subtitle: Text(
+          note,
+          style: GoogleFonts.outfit(fontSize: 12.5, color: NoorColors.onGlassMuted),
+        ),
+        trailing: mode == current
+            ? const Icon(Icons.check_circle_rounded, size: 22, color: NoorColors.emeraldDeep)
+            : null,
+        onTap: () => Navigator.of(context).pop(mode),
+      ),
+    );
   }
 
   /// Re-arms both schedules — the calculated reminders and the Jamaat-time

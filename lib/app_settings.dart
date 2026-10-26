@@ -135,7 +135,8 @@ AzanSound azanSoundByKey(String key) {
 /// Prayer keys that can carry their own reminder offset.
 const List<String> kNotifiablePrayers = <String>['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
 
-/// The three states a Home bell walks through, one tap at a time:
+/// The three states a Home bell can hold, asked of the reader in the bell's
+/// dialog (Azaan / Mute / Band):
 ///
 /// * `azan` — the banner *and* the recitation, the full reminder.
 /// * `silent` — the banner only, with no sound of any kind: the phone
@@ -145,9 +146,10 @@ const String kBellAzan = 'azan';
 const String kBellSilent = 'silent';
 const String kBellOff = 'off';
 
-/// The ring the Home bell cycles in — `azan → silent → off → azan` — so a
-/// reader who lands on any state always knows what the next tap gives.
-const List<String> kBellCycle = <String>[kBellAzan, kBellSilent, kBellOff];
+/// The states the bell's dialog offers, in the reader's own words — the first
+/// the fullest, the last the quietest, and the one in force gets ticked when
+/// the dialog opens.
+const List<String> kBellModes = <String>[kBellAzan, kBellSilent, kBellOff];
 
 /// How many minutes before a prayer the Azan reminder fires.
 /// `-1` means "at the time of the prayer".
@@ -653,8 +655,15 @@ class AppSettings extends ChangeNotifier {
   };
 
   /// prayer key → whether its reminder is switched on at all.
+  ///
+  /// It starts **off, for every prayer** — a profile nobody has spoken to
+  /// rings for nobody. Silence is the app's opening answer, not something a
+  /// reader has to go and switch off, and it can only be left behind by a
+  /// real answer: the Home bell's own dialog, or the switch in Settings.
+  /// Nothing here rewrites an existing value, so a reader who *did* choose
+  /// keeps exactly what they chose.
   final Map<String, bool> _notifyOn = <String, bool>{
-    for (final String key in kNotifiablePrayers) key: true,
+    for (final String key in kNotifiablePrayers) key: false,
   };
 
   /// prayer key → when a *favourite masjid's* alert for that prayer fires.
@@ -664,9 +673,11 @@ class AppSettings extends ChangeNotifier {
 
   /// prayer key → its Home bell's own mode ([kBellAzan]/[kBellSilent]/[kBellOff]).
   ///
-  /// No default entries on purpose: a bell never pressed *derives* its
-  /// state (see [bellModeFor]) so today's readers keep exactly what they
-  /// see, and only a real tap writes a mode of its own.
+  /// No default entries on purpose: a bell nobody has chosen *derives* its
+  /// state (see [bellModeFor]) — which, since silence became the answer for a
+  /// profile that never said anything, is the quiet off — so today's readers
+  /// keep exactly what they see, and only a real answer writes a mode of its
+  /// own.
   final Map<String, String> _bellModes = <String, String>{};
 
   /// masjid id → whether this account wants alerts from that masjid.
@@ -763,12 +774,14 @@ class AppSettings extends ChangeNotifier {
   ///
   /// A prayer switched off is always [kBellOff] — that switch is the same
   /// "no banner at all" the scheduler gates on, so the bell cannot claim
-  /// otherwise. Otherwise an explicitly tapped mode wins and survives the
+  /// otherwise. Since a reminder now starts off, that is also the answer
+  /// for a bell nobody has ever chosen: silence until somebody says
+  /// otherwise. Otherwise an explicitly picked mode wins and survives the
   /// Settings screen switching reminders off and back on (the reader gets
-  /// their `azan`/`silent` choice back). A bell never pressed has stored
-  /// nothing and derives from what the profile already said: a global
-  /// `silent` sound means a quiet app, so its plain bells start on
-  /// [kBellSilent]; any other sound starts on [kBellAzan].
+  /// their `azan`/`silent` choice back). Only a prayer switched on in
+  /// Settings *without* a pick of its own still derives from what the
+  /// profile already said: a global `silent` sound means a quiet app, so
+  /// it lands on [kBellSilent]; any other sound lands on [kBellAzan].
   String bellModeFor(String prayer) {
     if (!notifyOnFor(prayer)) return kBellOff;
     final String stored = _bellModes[prayer] ?? '';
@@ -783,7 +796,7 @@ class AppSettings extends ChangeNotifier {
   /// gate), while `azan`/`silent` restore it — which is also how a bell
   /// left `off` comes back to life under the same master switch.
   void setBellMode(String prayer, String mode) {
-    if (!kBellCycle.contains(mode)) return;
+    if (!kBellModes.contains(mode)) return;
     _bellModes[prayer] = mode;
     final bool on = mode != kBellOff;
     final bool wasOn = notifyOnFor(prayer);
@@ -793,15 +806,6 @@ class AppSettings extends ChangeNotifier {
     }
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key('bellmode_$prayer'), mode));
-  }
-
-  /// One tap on the Home bell: [kBellAzan] → [kBellSilent] → [kBellOff] →
-  /// around again. Returns what the bell now shows.
-  String cycleBellMode(String prayer) {
-    final String next =
-        kBellCycle[(kBellCycle.indexOf(bellModeFor(prayer)) + 1) % kBellCycle.length];
-    setBellMode(prayer, next);
-    return next;
   }
 
   /// Every masjid this profile has ever been switched on or off for. The
@@ -965,13 +969,15 @@ class AppSettings extends ChangeNotifier {
       _profilePhoto = prefs.getString(_key(_kProfilePhoto)) ?? '';
       for (final String key in kNotifiablePrayers) {
         _notifyOffsets[key] = prefs.getInt(_key('notify_$key')) ?? -1;
-        _notifyOn[key] = prefs.getBool(_key('notifyon_$key')) ?? true;
+        // Nothing stored means nobody has answered — the bell dialog is the
+        // first place that answer can be given, so a blank slot reads off.
+        _notifyOn[key] = prefs.getBool(_key('notifyon_$key')) ?? false;
         _favModes[key] = prefs.getString(_key('favmode_$key')) ?? kFavModeAt;
         // A stored mode only counts if it is one of the three; anything
         // else — stale, or a profile being left behind — clears the slot
         // so [bellModeFor] derives again instead of trusting garbage.
         final String mode = prefs.getString(_key('bellmode_$key')) ?? '';
-        if (kBellCycle.contains(mode)) {
+        if (kBellModes.contains(mode)) {
           _bellModes[key] = mode;
         } else {
           _bellModes.remove(key);
@@ -1226,7 +1232,11 @@ class AppSettings extends ChangeNotifier {
     _notificationsEnabled = defaults.notificationsEnabled;
     for (final String prayer in kNotifiablePrayers) {
       _notifyOffsets[prayer] = defaults.minutesBefore;
-      _notifyOn[prayer] = true;
+      // Seeding installs the owner's *silence* too: the seeded profile is
+      // one that has never answered, and "never answered" is off. The
+      // offsets are ready and waiting; the ringing itself is the reader's
+      // to ask for, in the bell dialog or in Settings.
+      _notifyOn[prayer] = false;
       _favModes[prayer] = kFavModeAt;
     }
 

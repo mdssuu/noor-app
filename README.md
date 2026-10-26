@@ -63,6 +63,9 @@ Everything lives in one file: [`lib/main.dart`](lib/main.dart).
   both, or off — so a reader following a printed board and a reader praying
   at home are not handed the same answer. A **Test Azaan** button and the
   exact-alarm + battery-optimisation prompts are raised once on first open.
+  Silence is the default now — nothing is scheduled until the reader answers
+  the Home bell dialog (Azaan / Mute / Band) or this screen, and a reader who
+  did answer keeps their choice.
 - **The day at a glance** — the sun's own path across the day drawn as a
   curve from **sunrise to sunset**, with the four times the boards print
   under the five (Ishraq, Chasht, Zawal, Tahajjud) pinned on it, the

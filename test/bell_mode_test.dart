@@ -3,9 +3,10 @@ import 'package:noor_masjid_time/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The Home bell's three states, in the reader's own words: the default is
-/// "mute notification on", one tap is "azaan aur notification dono band",
-/// the next is "dono on" — and the two switches Settings and Home hold
-/// never disagree about which of the three is meant.
+/// off — silence is the app's opening answer, and it is the bell's dialog
+/// (Azaan / Mute / Band) that hands a reader a state — while the Settings
+/// switch holds the same "off", so the two never disagree about which of the
+/// three is meant.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -14,53 +15,49 @@ void main() {
     await AppSettings.instance.load();
   });
 
-  group('a bell nobody has tapped derives its state', () {
-    test('global "Azaan 1" → the full azan, exactly as the bell read before',
-        () {
-      expect(AppSettings.instance.bellModeFor('fajr'), kBellAzan);
+  group('a bell nobody has chosen starts off', () {
+    test('a fresh profile rings for nobody, not even the azaan', () {
+      final AppSettings settings = AppSettings.instance;
+      expect(settings.bellModeFor('fajr'), kBellOff);
+      expect(settings.notifyOnFor('fajr'), isFalse);
     });
 
-    test('global "None (silent)" → notification-only, the quiet default', () {
+    test('a quiet global sound does not wake an untouched bell', () {
       final AppSettings settings = AppSettings.instance;
       settings.setAzanSound('silent');
-      expect(settings.bellModeFor('fajr'), kBellSilent);
-    });
-
-    test('switched off in Settings → off, whatever the sound says', () {
-      final AppSettings settings = AppSettings.instance;
-      settings.setAzanSound('makkah');
-      settings.setNotifyOn('fajr', false);
       expect(settings.bellModeFor('fajr'), kBellOff);
     });
   });
 
-  group('the ring', () {
-    test('walks azan → silent → off → azan', () {
+  group('the three answers', () {
+    test('Azaan rings the full way — card and recitation', () {
       final AppSettings settings = AppSettings.instance;
-      expect(settings.cycleBellMode('fajr'), kBellSilent);
-      expect(settings.cycleBellMode('fajr'), kBellOff);
-      expect(settings.cycleBellMode('fajr'), kBellAzan);
+      settings.setBellMode('fajr', kBellAzan);
+      expect(settings.bellModeFor('fajr'), kBellAzan);
+      expect(settings.notifyOnFor('fajr'), isTrue);
     });
 
-    test('keeps the master switch agreeing at every step', () {
+    test('Mute keeps the card and drops the recitation', () {
       final AppSettings settings = AppSettings.instance;
-
-      settings.cycleBellMode('dhuhr'); // azan → silent
-      expect(settings.notifyOnFor('dhuhr'), isTrue,
-          reason: 'silent still shows a banner');
-
-      settings.cycleBellMode('dhuhr'); // silent → off
-      expect(settings.notifyOnFor('dhuhr'), isFalse);
-
-      settings.cycleBellMode('dhuhr'); // off → azan
-      expect(settings.notifyOnFor('dhuhr'), isTrue);
+      settings.setBellMode('fajr', kBellSilent);
+      expect(settings.bellModeFor('fajr'), kBellSilent);
+      expect(settings.notifyOnFor('fajr'), isTrue,
+          reason: 'silent still shows a banner, so Settings still reads on');
     });
 
-    test('touches only the prayer it was tapped on', () {
+    test('Band does neither — not even a card', () {
+      final AppSettings settings = AppSettings.instance;
+      settings.setBellMode('fajr', kBellOff);
+      expect(settings.bellModeFor('fajr'), kBellOff);
+      expect(settings.notifyOnFor('fajr'), isFalse);
+    });
+
+    test('touches only the prayer it was chosen for', () {
       final AppSettings settings = AppSettings.instance;
       settings.setBellMode('isha', kBellOff);
-      expect(settings.bellModeFor('maghrib'), kBellAzan);
-      expect(settings.notifyOnFor('maghrib'), isTrue);
+      expect(settings.bellModeFor('maghrib'), kBellOff,
+          reason: 'untouched prayers keep the default off too');
+      expect(settings.notifyOnFor('maghrib'), isFalse);
     });
   });
 
@@ -92,9 +89,9 @@ void main() {
     test('rejects a mode that is not one of the three', () {
       final AppSettings settings = AppSettings.instance;
       settings.setBellMode('fajr', 'loud');
-      expect(settings.bellModeFor('fajr'), kBellAzan,
-          reason: 'nothing stored, so the derivation stands');
-      expect(settings.notifyOnFor('fajr'), isTrue);
+      expect(settings.bellModeFor('fajr'), kBellOff,
+          reason: 'nothing stored, so the default stays off');
+      expect(settings.notifyOnFor('fajr'), isFalse);
     });
   });
 
