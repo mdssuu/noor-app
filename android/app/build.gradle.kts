@@ -79,8 +79,29 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // Resource shrinking band karo.
+            //
+            // Flutter ka apna plugin release par ise khol deta hai, aur
+            // shrinker un resources ko *silently* kaat deta hai jo sirf
+            // `Resources.getIdentifier()` se padhe jaate hain — code me koi
+            // `R.raw.x` reference nahi, isliye res/raw ke chaaron azaan clips
+            // APK se gayab ho jaati thin. Native player ko "resId == 0" milta
+            // tha, `AzaanAudio` "nothing to play" likhta tha, aur Azaan bajta
+            // hi nahi tha — debug me bhi nahi, kyunki resource to banta hi nahi.
+            //
+            // Is app me dynamic lookups kaafi hain (awnings, widget, icon
+            // variants), to shrinker ka faayda bhi kam tha: kuch MB ke liye
+            // Azaan chup ho jana kharab soda hai.
+            isShrinkResources = false
         }
     }
+}
+
+// Flutter ka plugin apni configuration `afterEvaluate` ke andar bhi kar sakta
+// hai, jahan wo upar likhi value ko dobara overwrite kar de. Ye sabse aakhir
+// chalta hai, isliye shrinker kabhi wapas na aaye — yahi guarantee deta hai.
+afterEvaluate {
+    android.buildTypes.findByName("release")?.isShrinkResources = false
 }
 
 kotlin {

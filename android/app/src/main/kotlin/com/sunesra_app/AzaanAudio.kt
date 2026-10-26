@@ -43,6 +43,26 @@ object AzaanAudio {
         File(context.applicationContext.filesDir, "azaan_$sound.clip")
 
     /**
+     * The bundled clip's resource id, without asking `getIdentifier` for it.
+     *
+     * `Resources.getIdentifier` is a reflective lookup, and a release build's
+     * resource shrinker cannot see one: every clip in `res/raw` was dropped
+     * from the APK, `getIdentifier` answered `0`, and the Azaan never sounded
+     * at all — a prayer that rang was reported as "nothing to play". Naming
+     * the four bundled clips here is a compile-time answer to the same
+     * question, and it fails the build rather than the reader if a clip is
+     * ever taken out of the tree. Unknown names still go through
+     * `getIdentifier`, so a clip added later is not worse off than before.
+     */
+    private fun bundledId(context: Context, sound: String): Int = when (sound) {
+        "azaan1" -> R.raw.azaan1
+        "azaan2" -> R.raw.azaan2
+        "azaan3" -> R.raw.azaan3
+        "beep" -> R.raw.beep
+        else -> context.resources.getIdentifier(sound, "raw", context.packageName)
+    }
+
+    /**
      * How often the alarm volume is asked about while a recitation sounds.
      *
      * Slow enough to be free next to a recitation that already holds a wake
@@ -97,7 +117,7 @@ object AzaanAudio {
         val resId = if (downloaded) {
             0
         } else {
-            app.resources.getIdentifier(sound, "raw", app.packageName)
+            bundledId(app, sound)
         }
         if (!downloaded && resId == 0) {
             Log.w(TAG, "no downloaded clip for $sound and no res/raw/$sound — nothing to play")

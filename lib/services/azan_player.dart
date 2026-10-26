@@ -120,25 +120,47 @@ class AzanPlayer {
       return;
     }
 
-    // 2. No native player on this platform: remote clip, or a synthesised beep
-    //    that needs neither a bundle nor a network.
+    // 2. No native player on this platform — or a native player that has just
+    //    said it has nothing: remote clip, or a synthesised beep that needs
+    //    neither a bundle nor a network.
     try {
       if (sound.url != null) {
-        await _player.play(UrlSource(sound.url!), volume: 1.0);
+        // A remote clip is the *second* chance, not the listener: a dead or
+        // unreachable link must not leave "Test Azaan" spinning for thirty
+        // seconds with nothing to show for it. Eight seconds is longer than
+        // any honest start and short enough that the row still feels alive.
+        await _player
+            .play(UrlSource(sound.url!), volume: 1.0)
+            .timeout(const Duration(seconds: 8));
       } else if (!sound.hasBundle) {
         await _player.play(BytesSource(_beepWav()), volume: 1.0);
       } else {
         debugPrint('Noor ▸ azan preview unavailable on this platform: $key');
         return;
       }
-      _setPlaying(key);
-      _player.onPlayerComplete.first.then((_) {
-        if (_playingKey == key) _setPlaying(null);
-      });
     } catch (error) {
       debugPrint('Noor ▸ azan preview failed: $error');
-      _setPlaying(null);
+      if (!builtInFallback) {
+        _setPlaying(null);
+        return;
+      }
+      // The test owes an answer even when both clips are out of reach: the
+      // beep is not the Azaan, but it is proof the button is wired to
+      // something — silence is what made this row look broken in the first
+      // place.
+      debugPrint('Noor ▸ azan preview standing in with the beep for $key');
+      try {
+        await _player.play(BytesSource(_beepWav()), volume: 1.0);
+      } catch (beepError) {
+        debugPrint('Noor ▸ azan preview beep failed: $beepError');
+        _setPlaying(null);
+        return;
+      }
     }
+    _setPlaying(key);
+    _player.onPlayerComplete.first.then((_) {
+      if (_playingKey == key) _setPlaying(null);
+    });
   }
 
   Future<void> stop() async {
