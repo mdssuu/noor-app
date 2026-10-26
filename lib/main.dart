@@ -2022,7 +2022,7 @@ class NotificationService {
   /// losing favourite-masjid alerts (and vice versa).
   ///
   /// It is deliberately **silent**. The recitation belongs to the native
-  /// alarm-stream player (`AzaanAlarm` → `AzaanPlaybackService`), which is the
+  /// ringer-stream player (`AzaanAlarm` → `AzaanPlaybackService`), which is the
   /// one path the volume rocker can reach: while it runs
   /// `AzaanAudio.isPlaying()` is true, and a volume key tears the playback
   /// down. When this channel also carried the mp3, a *second* copy of the
@@ -2070,7 +2070,7 @@ class NotificationService {
   /// three-state switch on Home.
   ///
   /// A bell not on `azan` gets the silent sound, which both halves of the
-  /// reminder read the same way: no alarm-stream twin (no `androidRaw`)
+  /// reminder read the same way: no ringer-stream twin (no `androidRaw`)
   /// and, on iOS, a banner posted with `presentSound: false`. A bell that
   /// *is* on `azan` must actually recite even when the profile's global
   /// pick is "None (silent)" — the reader opted this prayer in, so the
@@ -2143,11 +2143,11 @@ class NotificationService {
   /// Favourite-masjid alerts are allocated from here upwards, ten ids per
   /// masjid so each of the five prayers keeps its own slot. Well clear of the
   /// 0..4 range above, and of the epoch-second ids `show()` uses. The native
-  /// alarm-stream alarms reuse the same numbers so one call cancels both.
+  /// ringer-stream alarms reuse the same numbers so one call cancels both.
   static const int _favIdFloor = 1000;
   static const int _favIdStride = 10;
 
-  /// Silent on Android — the recitation is the alarm-stream player's job (see
+  /// Silent on Android — the recitation is the ringer-stream player's job (see
   /// [_azanChannelId]). iOS keeps the bundled clip in the banner: there is no
   /// Kotlin side there, so the notification is the only audible path it has,
   /// and `presentSound: false` stays the way to get a truly silent reminder.
@@ -2237,7 +2237,7 @@ class NotificationService {
     try {
       await android.createNotificationChannel(_azanChannel());
       debugPrint('Noor ▸ Azaan channel $_azanChannelId ready (silent banner, '
-          'recitation via the alarm-stream player)');
+          'recitation via the ringer-stream player)');
     } catch (error) {
       debugPrint('Noor ▸ could not create the Azaan channel: $error');
     }
@@ -2438,7 +2438,7 @@ class NotificationService {
 
     // "When will the Azaan play?" — this pass arms the *calculated* (Awwal) reminders.
     // `cancelAzan()` above has already retired yesterday's copy of both this
-    // block and its alarm-stream twins, so leaving here is what keeps only the
+    // block and its ringer-stream twins, so leaving here is what keeps only the
     // favourite-masjid Jamaat times ringing ("Only at Jamaat time"), and
     // what makes "Band" cancel everything.
     if (!settings.schedulesAwwal) {
@@ -2488,9 +2488,15 @@ class NotificationService {
       final AzanSound sound = _bellSound(key);
       final String cardTitle =
           '${prayerByKey(key).label} • ${settings.format(prayerTime)}';
+      // This pass is reached only when the *calculated* source is armed
+      // (`schedulesAwwal`), so the words have to name that clock. It used to
+      // say "at your masjid" — the favourite pass's own sentence — which in
+      // "At both times" mode handed a reader two cards that named the same
+      // prayer twice with two different times and one identical description.
       final String cardBody = minutesBefore < 0
-          ? 'It is time for ${prayerByKey(key).label}.'
-          : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.';
+          ? 'It is time for ${prayerByKey(key).label} — Awwal time.'
+          : '${prayerByKey(key).label} in $minutesBefore minutes, before '
+              'Awwal time.';
 
       // Which card speaks for the prayer is decided before anything is
       // armed. With a clip in place that card is the recitation's, and it is
@@ -2687,7 +2693,7 @@ class NotificationService {
   /// action button — no app open, no settings trip, no "I'll remember".
   ///
   /// Both halves of the reminder come back: the silent banner through the
-  /// plugin, and the recitation through the alarm-stream player, so a phone
+  /// plugin, and the recitation through the ringer-stream player, so a phone
   /// on vibrate still sounds (that is the whole point of an azan over a
   /// notification). The banner can be snoozed again — its payload carries
   /// the same prayer key, and ten minutes is the plugin's *new* one-shot,
@@ -2831,7 +2837,7 @@ class NotificationService {
         try {
           await _plugin.cancel(id: request.id);
         } catch (_) {}
-        // Retire the alarm-stream twin by id as well. It shares this id, and
+        // Retire the ringer-stream twin by id as well. It shares this id, and
         // an id-based cancel needs neither the native `armedIds` ledger nor
         // the range call below — so one un-starred masjid can never keep
         // reciting just because a bookkeeping path above it went missing.
@@ -2841,7 +2847,7 @@ class NotificationService {
       debugPrint('Noor ▸ could not clear old favourite alerts: $error');
     }
 
-    // The native alarm-stream twins live in the same id space, so they are
+    // The native ringer-stream twins live in the same id space, so they are
     // cleared by range — an un-starred masjid must not keep reciting.
     await AzaanAlarm.cancelRange(_favIdFloor, _favIdCeiling);
 
@@ -3114,7 +3120,7 @@ class NotificationService {
 
       // The recitation at the same minute, on the same id. The banner alone
       // no longer proves anything audible: it carries no sound, by design —
-      // the clip is the alarm-stream player's job, and this is the one button
+      // the clip is the ringer-stream player's job, and this is the one button
       // that puts that exact path to work with the app shut.
       await AzaanAlarm.cancel(_testReminderId);
       if (sound.androidRaw != null) {

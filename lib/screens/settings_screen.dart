@@ -324,6 +324,33 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
       );
 
+  /// The sentence under "When will the Azaan play?".
+  ///
+  /// The row below offers all four modes and each one reads a different
+  /// clock, so this has to describe the mode that is actually live rather
+  /// than repeat the answer for whichever row the reader is about to leave —
+  /// otherwise "Only at Awwal time" still tells them the masjid's Jamaat
+  /// time is what will sound.
+  String get _azaanTimingHint {
+    switch (_settings.azaanTiming) {
+      case kAzaanTimingAwwalOnly:
+        return 'The Azaan plays at the calculated Awwal time — the earliest '
+            'waqt each prayer begins.';
+      case kAzaanTimingBoth:
+        return 'The Azaan plays twice for each prayer: once at the '
+            'calculated Awwal time, then again at your favourite masjid’s '
+            'own Jamaat time.';
+      case kAzaanTimingNone:
+        return 'No Azaan will sound for any prayer. The prohibited-time '
+            '(zawal) banner is unaffected.';
+      case kAzaanTimingJamaatOnly:
+      default:
+        return _settings.hasPrePrayerReminder
+            ? 'A pre-prayer reminder is on, so the Azaan plays at your favourite masjid’s Jamaat time.'
+            : 'The Azaan plays once per prayer, at your favourite masjid’s own Jamaat time.';
+    }
+  }
+
   Widget _hint(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Text(
@@ -676,12 +703,17 @@ class _SettingsScreenState extends State<SettingsScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         _label('When will the Azaan play?'),
-                        _hint(
-                      _settings.hasPrePrayerReminder
-                          ? 'A pre-prayer reminder is on, so the Azaan plays at your favourite masjid’s Jamaat time.'
-                          : 'The Azaan plays once per prayer, at your favourite masjid’s own Jamaat time.'),
+                        _hint(_azaanTimingHint),
                         DropdownButtonFormField<String>(
-                          key: ValueKey(_settings.azaanTimingOptions.join('|')),
+                          // The stored value is part of the key, not just the
+                          // option list: `initialValue` only ever seeds the
+                          // field once, so a value arriving from a profile
+                          // switch or the admin config would otherwise leave
+                          // a stale row lit. With four modes offered, a row
+                          // that disagrees with what is on disk is a setting
+                          // the reader cannot see, let alone undo.
+                          key: ValueKey(
+                              '${_settings.azaanTiming}|${_settings.azaanTimingOptions.join('|')}'),
                           initialValue: _settings.azaanTimingOptions
                                   .contains(_settings.azaanTiming)
                               ? _settings.azaanTiming
@@ -1126,7 +1158,7 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: Text(
               'Each Azaan above ships inside the app, so the reminder plays the '
               'full recitation instead of the phone’s default tone — with the '
-              'app closed, and at alarm volume. Silence is still yours: on '
+              'app closed, and at your own ring volume. Silence is still yours: on '
               'silent or vibrate the reminder stays quiet rather than '
               'overriding the choice, and “Test Azaan” says so instead of '
               'ringing anyway. With the ringer up, “Test Azaan” plays exactly '

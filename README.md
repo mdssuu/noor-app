@@ -52,14 +52,17 @@ Everything lives in one file: [`lib/main.dart`](lib/main.dart).
   *“Masjid Al-Falah ka Maghrib time update hua: 18:20”* through
   `flutter_local_notifications`, with the Android 13+ permission requested.
 - **Azaan sound that actually plays** — the clip is bundled in
-  `android/app/src/main/res/raw/` and attached to the notification channel, so
-  the reminder recites with the app closed instead of falling back to the
-  system tone (channel sound is frozen at creation, hence the delete +
-  recreate on every change). A second exact alarm plays the same file with
-  `USAGE_ALARM` **only when the phone is on silent/vibrate**, which is the one
-  case the channel cannot be heard — so never twice, never not at all.
-  Settings offers the selector, a **Test Azaan** button, and the exact-alarm +
-  battery-optimisation prompts are raised once on first open.
+  `android/app/src/main/res/raw/` and played by a native player on the
+  reader's own **ring volume**, so the reminder recites with the app closed at
+  the loudness their slider says, instead of falling back to the system tone.
+  The notification channel itself is deliberately silent, which is what keeps
+  the sound to exactly one source and makes it endable with one keypress.
+  Silent or vibrate is respected: the recitation declines rather than
+  overriding the choice. **"When will the Azaan play?"** picks the clock —
+  the masjid's own Jamaat column (the default), the calculated Awwal waqt,
+  both, or off — so a reader following a printed board and a reader praying
+  at home are not handed the same answer. A **Test Azaan** button and the
+  exact-alarm + battery-optimisation prompts are raised once on first open.
 - **The day at a glance** — the sun's own path across the day drawn as a
   curve from **sunrise to sunset**, with the four times the boards print
   under the five (Ishraq, Chasht, Zawal, Tahajjud) pinned on it, the

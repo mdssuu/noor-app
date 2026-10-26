@@ -186,8 +186,11 @@ const String kFavAlertKeyPrefix = 'favalert::';
 /// One prayer can be announced twice: once at the *calculated* time (the
 /// Awwal / earliest permissible waqt, from `NotificationService.scheduleAzan`)
 /// and again at a favourite masjid's own Jamaat column (from
-/// `scheduleFavouriteAlerts`). Both used to be armed, which is the "do baar
-/// azaan" bug — this preference picks which of the two survives.
+/// `scheduleFavouriteAlerts`). Both used to be armed *by default*, which is
+/// the "do baar azaan" bug: neither could be chosen, so both survived. The
+/// pair is a choice now, and the default asks for the masjid's column alone —
+/// which is also why the answer depends on where the reader prays rather than
+/// on what the app happens to know.
 const String kAzaanTimingJamaatOnly = 'jamaat_only';
 const String kAzaanTimingAwwalOnly = 'awwal_only';
 const String kAzaanTimingBoth = 'both';
@@ -197,17 +200,38 @@ const String kAzaanTimingNone = 'none';
 const String kAzaanTimingDefault = kAzaanTimingJamaatOnly;
 
 /// Dropdown order, exactly as the Settings rows appear.
-/// Only one Azaan option is offered in Settings.
+///
+/// A reader is asked one question — *when* should this prayer speak — and the
+/// answer is a property of their masjid, not of the app: somebody who follows
+/// a printed board wants the Jamaat column, somebody praying at home wants
+/// the calculated Awwal waqt, and a masjid that runs a few minutes behind its
+/// own Awwal is exactly the case where the difference is worth asking about.
+/// So all four are offered and the default keeps the older answer of "at the
+/// masjid", which is what every profile that has never spoken for itself
+/// reads as.
 const List<String> kAzaanTimingOptions = <String>[
   kAzaanTimingJamaatOnly,
+  kAzaanTimingAwwalOnly,
+  kAzaanTimingBoth,
+  kAzaanTimingNone,
 ];
 
 /// The wording the user sees in the "When will the Azaan play?" dropdown.
+///
+/// The two sources are named in full rather than by "Awwal"/"Jamaat" alone:
+/// on a screen with four rows in it, a reader has to be able to tell which
+/// clock each row is reading without knowing the word for it first.
 String azaanTimingLabel(String key) {
   switch (key) {
+    case kAzaanTimingAwwalOnly:
+      return 'Only at Awwal time (my calculated time)';
+    case kAzaanTimingBoth:
+      return 'At both Awwal and Jamaat time';
+    case kAzaanTimingNone:
+      return 'Off — no Azaan';
     case kAzaanTimingJamaatOnly:
     default:
-      return 'Only at Jamaat time';
+      return 'Only at my masjid’s Jamaat time';
   }
 }
 
@@ -270,8 +294,12 @@ class NewUserDefaults {
         ? raw['azanSound'] as String
         : builtin.azanSound;
 
+    // The owner's config is free to name any of the four; anything else
+    // (a typo, or a value from a build that offered fewer) falls back to the
+    // builtin answer rather than reaching Settings as a row the dropdown
+    // could not show.
     final String timing = raw['azaanTiming'] is String &&
-            raw['azaanTiming'] == kAzaanTimingJamaatOnly
+            kAzaanTimingOptions.contains(raw['azaanTiming'])
         ? raw['azaanTiming'] as String
         : builtin.azaanTiming;
 
@@ -708,7 +736,9 @@ class AppSettings extends ChangeNotifier {
   /// Only one choice is offered: the Azaan plays once per prayer, at the
   /// favourite masjid's Jamaat time. A pre-prayer reminder (At time, N min)
   /// does not hide this option anymore.
-  List<String> get azaanTimingOptions => const <String>[kAzaanTimingJamaatOnly];
+  /// The choices the "When will the Azaan play?" dropdown offers, in the order
+  /// they appear.
+  List<String> get azaanTimingOptions => kAzaanTimingOptions;
 
   /// Whether the calculated (Awwal) reminders may be armed. With `none`
   /// selected both of these read false and every Azaan alarm is cancelled.
@@ -914,10 +944,13 @@ class AppSettings extends ChangeNotifier {
       _onboarded = prefs.getBool(_key(_kOnboarded)) ?? false;
       _azanSound = prefs.getString(_key(_kAzan)) ?? 'makkah';
       // An unknown stored value would otherwise read as "no source at all",
-      // which is how a typo could silently mute every reminder.
-      // Only one option is offered now, so only that one is accepted.
+      // which is how a typo could silently mute every reminder. Only the
+      // choices the dropdown actually offers are accepted; a value from an
+      // older build that offered fewer falls back to the default instead of
+      // being trusted into a row it can no longer show.
       final String timing = prefs.getString(_key(_kAzaanTiming)) ?? kAzaanTimingDefault;
-      _azaanTiming = timing == kAzaanTimingJamaatOnly ? timing : kAzaanTimingDefault;
+      _azaanTiming =
+          kAzaanTimingOptions.contains(timing) ? timing : kAzaanTimingDefault;
       // Kept verbatim on purpose: the home screen only honours an id that is
       // still starred, so a masjid that has since been unstarred simply
       // costs one fallback rather than a key that silently lies.
@@ -1153,10 +1186,12 @@ class AppSettings extends ChangeNotifier {
   /// "When will the Azaan play?" — persisted as `azaan_timing_pref`, and pushed to the
   /// listeners so the Settings screen re-arms the alarms on the next frame.
   void setAzaanTiming(String key) {
-    // Only one option is offered now, so any other value falls back to it.
-    _azaanTiming = kAzaanTimingJamaatOnly;
+    // Anything the dropdown does not offer is not a source the scheduler
+    // understands: writing it would read back as the default anyway, so the
+    // fallback is made here, once, rather than being discovered at load.
+    _azaanTiming = kAzaanTimingOptions.contains(key) ? key : kAzaanTimingDefault;
     notifyListeners();
-    _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), kAzaanTimingJamaatOnly));
+    _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), _azaanTiming));
   }
 
   /// Takes [defaults] as this profile's starting point, in one write —

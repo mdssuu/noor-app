@@ -63,17 +63,21 @@ void main() {
       expect(parsed.readingLanguage, kReadingLanguageEnglish);
       expect(parsed.notificationsEnabled, isFalse);
 
-      // Azaan ka sirf ek hi option offer hota hai (kAzaanTimingOptions), aur
-      // owner ka document purane options (awwal_only / both / none) bhi rakh
-      // sakta hai - wo padh kar seedha "Jamaat only" ban jaate hain, warna
-      // Settings me dropdown me dikhne wali value hi na bache.
+      // Awwal / Both / Off sab kAzaanTimingOptions me hain, isliye owner ke
+      // document ka value waisa hi rakhna chahiye — aur jo value kisi bhi
+      // option me nahi hai wo padh kar default ban jaata hai, warna Settings
+      // ke dropdown me dikhne wali value hi na bache.
       expect(
         NewUserDefaults.fromMap(<String, dynamic>{'azaanTiming': kAzaanTimingAwwalOnly}).azaanTiming,
-        kAzaanTimingJamaatOnly,
+        kAzaanTimingAwwalOnly,
       );
       expect(
         NewUserDefaults.fromMap(<String, dynamic>{'azaanTiming': kAzaanTimingBoth}).azaanTiming,
-        kAzaanTimingJamaatOnly,
+        kAzaanTimingBoth,
+      );
+      expect(
+        NewUserDefaults.fromMap(<String, dynamic>{'azaanTiming': 'whenever'}).azaanTiming,
+        kAzaanTimingDefault,
       );
     });
 
@@ -106,9 +110,9 @@ void main() {
         timeFormat: '24',
         hijriAdjustment: 2,
         azanSound: 'madina',
-        // Is build ka sirf ek hi option hai (kAzaanTimingOptions), isliye
-        // round-trip me wahi jaana chahiye - `both` jaisa purana value
-        // fromMap me hi "Jamaat only" ban jaata hai aur ye test girta.
+        // Har mode abhi bhi kAzaanTimingOptions me hai, isliye round-trip me
+        // wahi value jaani chahiye — `whenever` jaisi koi value fromMap me hi
+        // default ban jaati hai aur ye test gir jaata.
         azaanTiming: kAzaanTimingJamaatOnly,
         minutesBefore: 15,
         readingLanguage: kReadingLanguageRoman,
