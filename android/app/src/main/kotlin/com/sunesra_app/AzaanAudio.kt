@@ -12,7 +12,7 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * Plays the Azaan clip, on the **ringtone** stream.
+ * Plays the Azaan clip, on the **alarm** stream.
  *
  * The clip comes from one of two places, and the choice is made here so that
  * every caller keeps asking the same question:
@@ -31,8 +31,19 @@ import java.util.concurrent.CopyOnWriteArraySet
  * session, and both the volume keys and the notification's stop action come
  * down to [stop].
  *
- * The stream is the whole feature, and it is the ringtone one deliberately.
- * See [watchStreamVolume] for why the alarm stream could never be silenced.
+ * The stream is the whole feature, and it is the alarm one: the single volume
+ * position Android refuses to silence, so a prayer still sounds on a phone
+ * left on silent — which is the promise every screen in this app says out
+ * loud ("at alarm volume when the phone is on silent"). It was the ringtone
+ * stream for a while, chosen when the stop condition was still "play until
+ * silence" and the alarm stream's floor of 3 made that undeliverable.
+ * [watchStreamVolume] stopped waiting for silence, and the stream was never
+ * moved across with it, so a silenced phone stayed silent — exactly the case
+ * a prayer reminder exists to cover.
+ *
+ * The rocker keeps working regardless: while a clip sounds, Android routes
+ * the volume keys to *that* stream, and [watchStreamVolume] reads any fall in
+ * its level as the press.
  */
 object AzaanAudio {
 
@@ -97,8 +108,8 @@ object AzaanAudio {
     }
 
     /**
-     * Starts [sound] at the ringtone volume — the one volume the rocker can
-     * actually reach. Returns false when the resource is missing or the
+     * Starts [sound] at the alarm volume — the one volume the rocker can
+     * actually reach while it plays, and the one no ringer mode takes away. Returns false when the resource is missing or the
      * decoder refuses it, so callers can fall back rather than report success
      * for silence. [onStopped] fires when the clip finishes or errors out —
      * the foreground service uses it to retire itself.
@@ -131,7 +142,7 @@ object AzaanAudio {
         try {
             mp.setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
             )
@@ -180,9 +191,9 @@ object AzaanAudio {
         Log.i(
             TAG,
             if (downloaded) {
-                "recitation on the ringtone stream — the owner's clip for $sound"
+                "recitation on the alarm stream — the owner's clip for $sound"
             } else {
-                "recitation on the ringtone stream"
+                "recitation on the alarm stream"
             }
         )
         watchStreamVolume(app)
@@ -196,11 +207,13 @@ object AzaanAudio {
      * stream's floor. Waiting for zero looked tidy and was the wrong question:
      * the alarm stream has no zero to reach — it bottoms out at 3 without an
      * app-op and 1 with one, so "stop at silence" is a promise the rocker
-     * physically cannot keep there. And even on the ringtone stream, where the
-     * floor is genuinely zero, getting from 15 down to it is fifteen presses.
-     * Nobody holds a volume key for fifteen steps to make a sound stop; they
-     * press once and expect it gone. Reading *any* drop as that press is what
-     * makes one button do what a person already believes it does.
+     * physically cannot keep. At a level of 15, reaching the floor would take
+     * fifteen presses. Nobody holds a volume key for fifteen steps to make a
+     * sound stop; they press once and expect it gone. Reading *any* drop as
+     * that press is what makes one button do what a person already believes
+     * it does — and it is what lets the alarm stream carry the clip at all,
+     * floor and all. The floor ruled this stream out only while silence was
+     * the test.
      *
      * It is polled, not observed, and that is not laziness. The obvious
      * observer — a [ContentObserver] on the `volume_alarm` settings row —
@@ -224,7 +237,7 @@ object AzaanAudio {
         // the one thing that must not count as a press, so the comparison
         // starts from the level the playback itself was born at.
         val startLevel = try {
-            audio.getStreamVolume(AudioManager.STREAM_RING)
+            audio.getStreamVolume(AudioManager.STREAM_ALARM)
         } catch (_: Exception) {
             return
         }
@@ -233,7 +246,7 @@ object AzaanAudio {
             override fun run() {
                 if (player == null) return
                 val level = try {
-                    audio.getStreamVolume(AudioManager.STREAM_RING)
+                    audio.getStreamVolume(AudioManager.STREAM_ALARM)
                 } catch (_: Exception) {
                     return
                 }
@@ -241,7 +254,7 @@ object AzaanAudio {
                     handler.postDelayed(this, POLL_INTERVAL_MS)
                     return
                 }
-                Log.i(TAG, "ringtone volume dropped $startLevel → $level — stopping the recitation")
+                Log.i(TAG, "alarm volume dropped $startLevel → $level — stopping the recitation")
                 stop()
             }
         }

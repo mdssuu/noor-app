@@ -96,7 +96,7 @@ class AzaanPlaybackService : Service() {
         // outright (`Abort background activity starts`), and a popup the user
         // has to dismiss is not what an Azaan should ask of anyone anyway. The
         // rocker needs no window of ours at all: it lowers whichever stream is
-        // currently sounding, and this service plays on the ringtone stream
+        // currently sounding, and this service plays on the alarm stream
         // precisely so that the stream it adjusts is the one the Azaan is on.
         return START_NOT_STICKY
     }
@@ -251,7 +251,7 @@ class AzaanPlaybackService : Service() {
         // and on this device the system refuses to launch it at all
         // (`Abort background activity starts`). The rocker does not need one:
         // it lowers whichever stream is sounding, and the Azaan sounds on the
-        // ringtone stream for exactly that reason. What is left here is a
+        // alarm stream for exactly that reason. What is left here is a
         // quiet record that the Azaan is playing, and the one button below it.
         return builder
             .setSmallIcon(android.R.drawable.ic_media_play)

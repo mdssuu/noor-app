@@ -74,10 +74,11 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
             //
             // No recitation card is raised here either. The rocker is the
             // mute the user reaches for, and it needs no window of ours: the
-            // clip sounds on the ringtone stream, which is the one stream the
-            // volume keys adjust and the one stream that can actually reach
-            // zero. A popup would only be one more thing to dismiss over an
-            // Azaan, and on this device the system refuses it outright.
+            // clip sounds on the alarm stream, which is the stream the volume
+            // keys move while anything is on it, and one press in its
+            // direction is the fall [AzaanAudio.watchStreamVolume] reads as
+            // that mute. A popup would only be one more thing to dismiss over
+            // an Azaan, and on this device the system refuses it outright.
             Log.w(TAG, "foreground start refused, playing inline: ${error.message}")
             AzaanAudio.play(context, sound)
         }
