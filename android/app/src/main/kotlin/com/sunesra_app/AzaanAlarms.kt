@@ -42,6 +42,15 @@ object AzaanAlarms {
         val minute: Int,
         val sound: String,
         val title: String?,
+        /**
+         * The line the prayer's card carries.
+         *
+         * Written into the ledger because the card is posted by the receiver
+         * that fires tomorrow's copy too: a re-armed alarm that forgot its
+         * body would come back able to make a sound and unable to say what
+         * for.
+         */
+        val body: String? = null,
         val recurring: Boolean,
     )
 
@@ -60,16 +69,17 @@ object AzaanAlarms {
         atMs: Long,
         sound: String,
         title: String?,
+        body: String? = null,
         recurring: Boolean = true,
     ) {
         val app = context.applicationContext
         val am = app.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val pending = pendingIntent(app, id, sound, title, recurring)
+        val pending = pendingIntent(app, id, sound, title, body, recurring)
 
         // The ledger is written *before* the arm, never after. A crash in
         // between used to leave an alarm nothing could ever cancel or re-arm,
         // because the bookkeeping came second.
-        remember(app, id, specFor(atMs, sound, title, recurring))
+        remember(app, id, specFor(atMs, sound, title, body, recurring))
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -136,7 +146,7 @@ object AzaanAlarms {
         if (!spec.recurring) return false
         val next = nextOccurrence(spec.hour, spec.minute)
         Log.i(TAG, "azaan $id fired — re-armed for ${spec.hour}:${ "%02d".format(spec.minute) }")
-        schedule(app, id, next, spec.sound, spec.title, recurring = true)
+        schedule(app, id, next, spec.sound, spec.title, spec.body, recurring = true)
         return true
     }
 
@@ -164,6 +174,10 @@ object AzaanAlarms {
                     nextOccurrence(spec.hour, spec.minute),
                     spec.sound,
                     spec.title,
+                    // The card's own line travels with it: a boot re-arm
+                    // that forgot the body would come back able to make a
+                    // sound and unable to say what for.
+                    spec.body,
                     recurring = true,
                 )
                 rearmed++
@@ -195,7 +209,7 @@ object AzaanAlarms {
         val am = app.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         // Extras are not part of Intent.filterEquals, so this resolves to the
         // very PendingIntent that was armed, whatever it carried.
-        am.cancel(pendingIntent(app, id, null, null, recurring = true))
+        am.cancel(pendingIntent(app, id, null, null, null, recurring = true))
         forget(app, id)
     }
 
@@ -231,6 +245,7 @@ object AzaanAlarms {
         id: Int,
         sound: String?,
         title: String?,
+        body: String?,
         recurring: Boolean,
     ): PendingIntent {
         val intent = Intent(context, AzaanAlarmReceiver::class.java)
@@ -242,6 +257,7 @@ object AzaanAlarms {
             .putExtra(AzaanAlarmReceiver.EXTRA_ID, id)
             .putExtra(AzaanAlarmReceiver.EXTRA_SOUND, sound)
             .putExtra(AzaanAlarmReceiver.EXTRA_TITLE, title)
+            .putExtra(AzaanAlarmReceiver.EXTRA_BODY, body)
             .putExtra(AzaanAlarmReceiver.EXTRA_RECURRING, recurring)
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -277,6 +293,7 @@ object AzaanAlarms {
                     minute = entry.optInt("m", 0).coerceIn(0, 59),
                     sound = entry.optString("s", ""),
                     title = if (entry.isNull("t")) null else entry.optString("t"),
+                    body = if (entry.isNull("b")) null else entry.optString("b"),
                     recurring = entry.optBoolean("r", true),
                 )
             }
@@ -291,13 +308,20 @@ object AzaanAlarms {
     fun specFor(context: Context, id: Int): Spec? = specs(context)[id]
 
     /** Turns an armed instant into the record that survives losing it. */
-    private fun specFor(atMs: Long, sound: String, title: String?, recurring: Boolean): Spec {
+    private fun specFor(
+        atMs: Long,
+        sound: String,
+        title: String?,
+        body: String?,
+        recurring: Boolean,
+    ): Spec {
         val calendar = java.util.Calendar.getInstance().apply { timeInMillis = atMs }
         return Spec(
             hour = calendar.get(java.util.Calendar.HOUR_OF_DAY),
             minute = calendar.get(java.util.Calendar.MINUTE),
             sound = sound,
             title = title,
+            body = body,
             recurring = recurring,
         )
     }
@@ -325,6 +349,7 @@ object AzaanAlarms {
                     .put("m", spec.minute)
                     .put("s", spec.sound)
                     .put("t", spec.title ?: org.json.JSONObject.NULL)
+                    .put("b", spec.body ?: org.json.JSONObject.NULL)
                     .put("r", spec.recurring),
             )
         }

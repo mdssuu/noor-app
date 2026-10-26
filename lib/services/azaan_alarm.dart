@@ -16,9 +16,14 @@ import 'package:flutter/widgets.dart';
 /// service's media session otherwise, and the "STOP AZAN" action on its
 /// notification when the phone is locked.
 ///
-/// It follows that the clip belongs at the prayer time itself. A reminder set
-/// minutes early is an advance notice, and scheduling the recitation at that
-/// offset is what made the phone sound minutes before any timetable said so.
+/// The clip leaves at the instant the reader chose — the prayer time less
+/// whatever the chips say, `0` when they say "At time". The chips are not a
+/// note about the Azaan, they *are* when the Azaan happens, and scheduling the
+/// recitation somewhere other than the moment the banner fires is what left a
+/// reader who had asked for "5 min before" listening to the Azaan arrive on
+/// the dot. One instant, one card: [AzaanAlarm] carries the card's own line
+/// too, so the receiver can say what the banner would have said even when the
+/// phone is silenced and no clip is allowed to sound.
 class AzaanAlarm {
   AzaanAlarm._();
 
@@ -102,6 +107,7 @@ class AzaanAlarm {
     required DateTime at,
     required String raw,
     String? title,
+    String? body,
     bool recurring = true,
   }) async {
     install();
@@ -110,6 +116,7 @@ class AzaanAlarm {
       'atMs': at.millisecondsSinceEpoch,
       'sound': raw,
       'title': title,
+      'body': body,
       'recurring': recurring,
     });
   }

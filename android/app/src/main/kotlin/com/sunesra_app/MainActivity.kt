@@ -164,6 +164,10 @@ class MainActivity : FlutterActivity() {
                         atMs = atMs.toLong(),
                         sound = sound,
                         title = call.argument<String>("title"),
+                        // The line the prayer's card carries. It rides the
+                        // alarm because the receiver, not Dart, posts that
+                        // card now — see PrayerCard.
+                        body = call.argument<String>("body"),
                         // Prayer alarms come back tomorrow; the Settings probe
                         // deliberately does not, or it would ring every morning.
                         recurring = call.argument<Boolean>("recurring") ?: true,

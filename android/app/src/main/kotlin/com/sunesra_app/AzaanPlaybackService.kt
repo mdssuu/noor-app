@@ -1,14 +1,9 @@
 package com.sunesra_app
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.drawable.Icon
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
@@ -21,14 +16,35 @@ import android.view.KeyEvent
  *
  * A recitation lasts minutes, and a process that only answered a broadcast is
  * a prime candidate for being trimmed mid-way through. Being in the foreground
- * for that span is what keeps it alive; the notification it must post is
- * deliberately silent and low-priority, because the recitation is the only
- * sound this app makes and nothing is allowed to compete with it.
+ * for that span is what keeps it alive; the notification it must post is the
+ * prayer's own card — [PrayerCard], one per prayer, never two — and it is
+ * silent, because the recitation is the only sound this app makes and nothing
+ * is allowed to compete with it.
  */
 class AzaanPlaybackService : Service() {
 
     /** Set while a clip runs, so the lock screen and a headset can stop it. */
     private var session: MediaSession? = null
+
+    /**
+     * The prayer this run speaks for, carried so the card can be handed back
+     * when the clip ends.
+     *
+     * The id is the prayer's own — the number [PrayerCard] and the Dart side
+     * both use — because the foreground notification *is* the prayer's card,
+     * not a second one the service brings of its own. `NOTIFICATION_ID` is
+     * only the fallback for a start that arrived with no id to be had.
+     */
+    private var cardId: Int = NOTIFICATION_ID
+    private var cardTitle: String? = null
+    private var cardBody: String? = null
+    private var cardSound: String? = null
+
+    /** True once this instance has actually entered the foreground. */
+    private var foregrounded = false
+
+    /** Set the moment the card is handed back, so no path posts it twice. */
+    private var retired = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -39,8 +55,8 @@ class AzaanPlaybackService : Service() {
         if (stopping) {
             // The notification's "STOP AZAN" button lands here, from the lock
             // screen. Silence first — waiting for onDestroy() would leave a
-            // beat of recitation after the tap — then retire the foreground
-            // notification with it.
+            // beat of recitation after the tap — then hand the card back to
+            // its resting state.
             AzaanAudio.stop()
             finish()
             return START_NOT_STICKY
@@ -55,26 +71,34 @@ class AzaanPlaybackService : Service() {
         // request is worth sending to it.
         up = true
 
-        val title = intent.getStringExtra(EXTRA_TITLE)
-            ?.takeIf { it.isNotBlank() }
-            ?: "Azaan"
+        cardSound = sound
+        cardTitle = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "Azaan"
+        cardBody = intent?.getStringExtra(EXTRA_BODY)
+        (intent?.getIntExtra(EXTRA_ID, -1) ?: -1).let { id -> if (id >= 0) cardId = id }
 
         // Foreground first: the receiver started this with
         // startForegroundService(), which must be answered within five
-        // seconds whether or not the clip then plays. The notification it
-        // posts carries the full-screen intent — see buildNotification.
+        // seconds whether or not the clip then plays.
+        //
+        // The card it posts is [PrayerCard]'s, under the *prayer's* own id —
+        // the same number the reminder would have used. That is what makes
+        // this one card rather than two: whichever posts last replaces the
+        // other, and the Dart side does not post at all while a clip is
+        // armed, so there is only ever this one.
         try {
-            val notification = buildNotification(title)
+            val notification =
+                PrayerCard.build(this, cardId, cardTitle, cardBody, sound, playing = true)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
-                    NOTIFICATION_ID,
+                    cardId,
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
                 )
             } else {
                 @Suppress("DEPRECATION")
-                startForeground(NOTIFICATION_ID, notification)
+                startForeground(cardId, notification)
             }
+            foregrounded = true
         } catch (error: Exception) {
             // Not fatal: the clip matters more than the foreground status.
             Log.w(TAG, "could not enter foreground: ${error.message}")
@@ -89,34 +113,68 @@ class AzaanPlaybackService : Service() {
             return START_NOT_STICKY
         }
 
-        // No window is raised, and that is deliberate.
+        // A window *is* raised, and that is the point.
         //
-        // A recitation screen is what a volume key would need in order to be
-        // *intercepted* — but on this device the system refuses that launch
-        // outright (`Abort background activity starts`), and a popup the user
-        // has to dismiss is not what an Azaan should ask of anyone anyway. The
-        // rocker needs no window of ours at all: it lowers whichever stream is
-        // currently sounding, and this service plays on the alarm stream
-        // precisely so that the stream it adjusts is the one the Azaan is on.
+        // Android hands a key event to the focused window and to nothing
+        // else, so with the keyguard up there is no window of ours to catch a
+        // rocker press — which is exactly why an "unstoppable" Azaan was
+        // never a playback problem, it was a focus problem. The card's
+        // full-screen intent is what puts [AzaanActivity] over the lock
+        // screen; there it owns both volume keys, offers a STOP AZAN button,
+        // and closes itself the moment the clip does. An earlier version
+        // raised it with a plain `startActivity` and the system refused it
+        // outright (`Abort background activity starts`); a full-screen intent
+        // is the one launch Android still makes itself.
+        //
+        // For the phone that is unlocked with some other app in front — a
+        // full-screen intent does not reach that one — [AzaanAudio] watches
+        // every stream a key could move and reads any change as the press.
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         up = false
         AzaanAudio.stop()
-        releaseSession()
+        // A service killed from under the clip never reaches finish() by the
+        // usual road, so the card is handed back from here too — guarded, so
+        // the normal exit does not post it a second time.
+        finish()
         super.onDestroy()
     }
 
+    /**
+     * Hands the prayer's card back and retires the service.
+     *
+     * **Detach**, never remove. The card belongs to the prayer and has to
+     * outlive the clip that stood in for it — the reader asked to be told at
+     * Maghrib, and a recitation that ended must not take the telling with it.
+     * What changes is the one thing that was temporary about it: the
+     * `STOP AZAN` action goes with the playback, and the `Snooze 10 min`
+     * button the resting card carries takes its place.
+     *
+     * Nothing is posted at all when this instance never entered the
+     * foreground: a stop that arrived before a clip existed would otherwise
+     * conjure a card for a prayer nothing has happened to.
+     */
     private fun finish() {
         releaseSession()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+        if (!retired) {
+            retired = true
+            if (foregrounded) {
+                @Suppress("DEPRECATION")
+                stopForeground(false)
+                PrayerCard.show(
+                    applicationContext,
+                    cardId,
+                    cardTitle,
+                    cardBody,
+                    cardSound,
+                    playing = false,
+                )
+            }
         }
         stopSelf()
+        up = false
     }
 
     /** The volume rocker is the mute the user reaches for; hand it to them. */
@@ -126,17 +184,26 @@ class AzaanPlaybackService : Service() {
     }
 
     /**
-     * Gives the lock screen and any connected headset a way to stop the
+     * Gives a headset, the lock screen's transport controls and the media
+     * button of anything else that is playing a part a way to stop the
      * recitation.
      *
-     * The framework's media session carries transport controls, not volume:
-     * the rocker adjusts whichever *stream* is sounding, and the Azaan plays
-     * on the alarm stream on purpose — that is the one position Android
-     * refuses to silence. So a volume key reaches the recitation only through
-     * [MainActivity.onKeyDown], with the app in front. This session covers
-     * the rest: a stop control wherever the system renders playing media, and
-     * the media buttons of a headset. The "STOP AZAN" action on the
-     * notification is the same handle, spelled as a notification.
+     * It is deliberately **not** where the volume rocker is answered. The
+     * framework's `MediaSession` offers two flags and neither of them is
+     * volume: `FLAG_HANDLES_MEDIA_VOLUME` is a `MediaSessionCompat` idea that
+     * this class cannot use, and there is no `onAdjustVolume` to override. So
+     * the rocker has two roads of its own, both outside this session:
+     *
+     *  * [AzaanActivity], raised by the card's full-screen intent, is the
+     *    focused window a key event actually goes to — that is the road that
+     *    answers *strictly*, because it catches the press even when the key
+     *    would otherwise change nothing at all;
+     *  * [AzaanAudio.watchStreamVolume], for the unlocked phone in front of
+     *    some other app, reads every stream a key could move and treats any
+     *    movement as the press.
+     *
+     * This session covers the rest — pause, stop, and the transport controls
+     * a connected headset or a lock-screen widget renders.
      */
     private fun startSession() {
         releaseSession()
@@ -202,112 +269,33 @@ class AzaanPlaybackService : Service() {
         }
     }
 
-    private fun buildNotification(title: String): Notification {
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Azaan playback",
-                    // HIGH, and deliberately so. A full-screen intent is only
-                    // honoured on an alerting channel: on LOW the system posts
-                    // the notification quietly and *drops the full-screen part
-                    // on the floor*, with no error and no log line anywhere.
-                    // That is precisely how the recitation screen failed to
-                    // appear over the lock screen while every other part of
-                    // the pipeline reported success — the one launch no
-                    // background restriction can refuse was being refused by
-                    // our own channel importance. It stays silent (`setSound`
-                    // below), so HIGH costs no second copy of the Azaan; what
-                    // it buys is a window the volume keys can land on.
-                    NotificationManager.IMPORTANCE_HIGH,
-                ).apply {
-                    description = "Present only while an Azaan is actually playing"
-                    setSound(null, null)
-                    enableVibration(false)
-                    setShowBadge(false)
-                    // Shown on the lock screen in full, however the user has
-                    // configured notification privacy there. This is the stop
-                    // handle that needs no window at all: the "STOP AZAN"
-                    // button below stays tappable while the phone is locked,
-                    // so the recitation can be ended on any device without the
-                    // recitation screen ever having appeared.
-                    setLockscreenVisibility(Notification.VISIBILITY_PUBLIC)
-                },
-            )
-        }
-
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-
-        // No full-screen intent, and no popup behind it either.
-        //
-        // A recitation screen is what a volume key would need in order to be
-        // *intercepted*, but it is also a window the user has to dismiss —
-        // and on this device the system refuses to launch it at all
-        // (`Abort background activity starts`). The rocker does not need one:
-        // it lowers whichever stream is sounding, and the Azaan sounds on the
-        // alarm stream for exactly that reason. What is left here is a
-        // quiet record that the Azaan is playing, and the one button below it.
-        return builder
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(title)
-            .setContentText("Azaan playing")
-            .setOngoing(true)
-            .setShowWhen(true)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            // An alarm, not a message: the system treats it as one — shown on
-            // the lock screen, counted with the alarms, and offered the same
-            // dismissal behaviour every alarm app gets.
-            .setCategory(Notification.CATEGORY_ALARM)
-            .addAction(stopAzanAction())
-            .build()
-    }
-
-    /**
-     * "STOP AZAN" on the playback notification — the only handle that reaches
-     * the recitation when the phone is locked or the app is nowhere on screen.
-     *
-     * The intent is deliberately a plain service start rather than
-     * `startForegroundService()`: this notification only exists while the
-     * service is already in the foreground, so the background-start
-     * restrictions do not apply, and the ACTION_STOP branch never has to
-     * satisfy the "call startForeground() within five seconds" contract.
-     */
-    private fun stopAzanAction(): Notification.Action {
-        val stop = Intent(this, AzaanPlaybackService::class.java).setAction(ACTION_STOP)
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags = flags or PendingIntent.FLAG_IMMUTABLE
-        }
-        val pending = PendingIntent.getService(this, NOTIFICATION_ID, stop, flags)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Notification.Action.Builder(
-                Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                "STOP AZAN",
-                pending,
-            ).build()
-        } else {
-            // Pre-M has no Icon overload of the builder; the resource id is
-            // the only spelling that works there.
-            @Suppress("DEPRECATION")
-            Notification.Action.Builder(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "STOP AZAN",
-                pending,
-            ).build()
-        }
-    }
+    // The notification is no longer built here.
+    //
+    // It used to be: this service owned a card of its own ("Azaan playing",
+    // id 900001, channel `azaan_playback_v2`) while the reminder belonged to
+    // the Dart side — two cards for one prayer whenever an advance notice was
+    // set, and, when the recitation was declined for a silenced phone,
+    // neither. [PrayerCard] is the single owner now and this service only
+    // hands it a state: `playing` while the clip runs, resting the moment it
+    // ends.
 
     companion object {
         const val ACTION_PLAY = "com.sunesra_app.action.PLAY_AZAAN_SERVICE"
         const val ACTION_STOP = "com.sunesra_app.action.STOP_AZAAN_SERVICE"
         const val EXTRA_SOUND = "sound"
         const val EXTRA_TITLE = "title"
+
+        /** The reminder's own line, so the card can say what the banner did. */
+        const val EXTRA_BODY = "body"
+
+        /**
+         * The prayer this run is for — the id the card is posted under.
+         *
+         * It arrives from the alarm, which took it from the Dart side, which
+         * allocates the same numbers to `flutter_local_notifications`. One
+         * number, one prayer, one card.
+         */
+        const val EXTRA_ID = "id"
 
         /**
          * Set while an instance is actually up holding a recitation.
@@ -328,11 +316,13 @@ class AzaanPlaybackService : Service() {
          * context — the recitation screen, the activity's volume key handler,
          * the playback notification.
          *
-         * Silence first, then retire the service so its "STOP AZAN"
-         * notification goes with it. The service is asked to stand down with a
-         * plain `startService()`, never `startForegroundService()`: the
-         * ACTION_STOP branch never enters the foreground, and the latter would
-         * have the process killed for not doing so within five seconds.
+         * Silence first, then retire the service. The prayer's card stays
+         * behind it in its resting form — what goes is the `STOP AZAN`
+         * action, which belonged to a clip that is no longer running.
+         * The service is asked to stand down with a plain `startService()`,
+         * never `startForegroundService()`: the ACTION_STOP branch never
+         * enters the foreground, and the latter would have the process killed
+         * for not doing so within five seconds.
          */
         fun stopFromAnywhere(context: Context) {
             if (!up) return
@@ -354,18 +344,13 @@ class AzaanPlaybackService : Service() {
         private const val TAG = "Noor/AzanService"
 
         /**
-         * A new id, not a new setting on the old one.
+         * The fallback card id, for a start that arrived with no prayer to
+         * name.
          *
-         * A channel's importance is set once and then belongs to the system:
-         * on this device `azaan_playback` has stayed at `mImportance=2` no
-         * matter that the app later asked for HIGH — the dumpsys output says
-         * `mUserLockedFields=0`, so no user did it, and yet the value would
-         * not move. Every attempt to upgrade it in place was being ignored,
-         * which is how a full-screen intent kept being dropped on a channel
-         * the code believed was alerting. An id the system has never seen is
-         * the one thing it cannot have an old opinion about.
+         * Every path that matters carries [EXTRA_ID]; this is only so a
+         * foreground service can never be entered with an id of -1, which the
+         * system would not accept.
          */
-        private const val CHANNEL_ID = "azaan_playback_v2"
         private const val NOTIFICATION_ID = 900001
     }
 }

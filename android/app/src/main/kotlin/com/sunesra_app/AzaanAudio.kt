@@ -97,13 +97,15 @@ object AzaanAudio {
     }
 
     /**
-     * How often the alarm volume is asked about while a recitation sounds.
+     * How often each watched stream is asked about while a recitation sounds.
      *
-     * Slow enough to be free next to a recitation that already holds a wake
-     * lock, fast enough that a keypress feels answered the moment the finger
-     * lets go.
+     * A keypress should be answered while the finger is still on the key —
+     * which is what the paragraph below promised at a full second and could
+     * not keep. A quarter of one is still free next to a recitation that
+     * already holds a wake lock, and it is fast enough that "the volume
+     * button stops it" reads as immediate rather than as a beat.
      */
-    private const val POLL_INTERVAL_MS = 1_000L
+    private const val POLL_INTERVAL_MS = 250L
 
     private var player: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -240,27 +242,42 @@ object AzaanAudio {
     /**
      * Notices the rocker being touched at all, and ends the recitation.
      *
-     * The stop condition is **any fall from where the level started**, not the
-     * stream's floor. Waiting for zero looked tidy and was the wrong question:
-     * the alarm stream has no zero to reach — it bottoms out at 3 without an
-     * app-op and 1 with one, so "stop at silence" is a promise the rocker
-     * physically cannot keep. At a level of 15, reaching the floor would take
-     * fifteen presses. Nobody holds a volume key for fifteen steps to make a
-     * sound stop; they press once and expect it gone. Reading *any* drop as
-     * that press is what makes one button do what a person already believes
-     * it does — and it is what lets the alarm stream carry the clip at all,
-     * floor and all. The floor ruled this stream out only while silence was
-     * the test.
+     * Two things were wrong with the first version, and both are answered by
+     * watching more and asking less.
+     *
+     * **Which stream.** It read only `STREAM_ALARM`, on the theory that the
+     * rocker moves whatever is sounding. It does not: Android picks the
+     * stream a volume key adjusts from its own idea of what is *active*,
+     * which is the ringtone almost always, and the alarm stream — the one
+     * position a ringer key cannot reach — is precisely the one the key never
+     * picks. A press therefore changed a number nobody was reading, and the
+     * Azaan played to the end. Every stream a key could plausibly move is
+     * watched instead: alarm, ring, notification and media. Notification is
+     * not redundant with ring either — it is aliased to it on most builds,
+     * so it moves together and whichever is read first ends it.
+     *
+     * **Which direction.** It waited for a *fall*, because the clip is meant
+     * to be quieted. But the reader who reaches for the rocker at 5 a.m. is
+     * not adjusting anything — they want the thing gone, and they have said
+     * so plainly: the button should turn it off, strictly. Any movement of
+     * any watched stream, up or down, reads as that press. The floor is not
+     * the question and never was: waiting for silence would have asked for
+     * fifteen presses and still could not be kept, since the alarm stream
+     * bottoms out above zero without an app-op.
      *
      * It is polled, not observed, and that is not laziness. The obvious
-     * observer — a [ContentObserver] on the `volume_alarm` settings row —
-     * reports a different number from the one the stream actually uses: on
-     * the device this was written against the row read 8 while the alarm
-     * stream was playing at 10. The row is a stale copy that this build never
-     * refreshes, so a watcher parked on it waits for a change the rocker's
-     * own handling never sends. Asking [AudioManager] directly answers the
-     * only question that matters, on every OEM, once a second — a price worth
-     * paying for a recitation that already holds a wake lock.
+     * observer — a [android.database.ContentObserver] on the `volume_alarm`
+     * settings row — reports a different number from the one the stream
+     * actually uses: on the device this was written against the row read 8
+     * while the alarm stream was playing at 10. The row is a stale copy this
+     * build never refreshes, so a watcher parked on it waits for a change the
+     * rocker's own handling never sends. Asking [AudioManager] directly
+     * answers the only question that matters, on every OEM, and often enough
+     * that a keypress is answered before the finger has lifted.
+     *
+     * The service's media session takes the key first where the platform
+     * lets it ([MediaSession.FLAG_HANDLES_MEDIA_VOLUME]); this is the answer
+     * for the device that routes the key to the audio service instead.
      */
     private fun watchStreamVolume(context: Context) {
         val app = context.applicationContext
@@ -270,11 +287,18 @@ object AzaanAudio {
         } catch (_: Exception) {
             return
         }
-        // Where the rocker stood when the Azaan began. The Azaan starting is
+        val watched = intArrayOf(
+            AudioManager.STREAM_ALARM,
+            AudioManager.STREAM_RING,
+            AudioManager.STREAM_NOTIFICATION,
+            AudioManager.STREAM_MUSIC,
+        )
+        // Where each stream stood when the Azaan began. The Azaan starting is
         // the one thing that must not count as a press, so the comparison
-        // starts from the level the playback itself was born at.
-        val startLevel = try {
-            audio.getStreamVolume(AudioManager.STREAM_ALARM)
+        // starts from the levels the playback itself was born at.
+        val startLevels = IntArray(watched.size)
+        try {
+            for (i in watched.indices) startLevels[i] = audio.getStreamVolume(watched[i])
         } catch (_: Exception) {
             return
         }
@@ -282,21 +306,35 @@ object AzaanAudio {
         val poll = object : Runnable {
             override fun run() {
                 if (player == null) return
-                val level = try {
-                    audio.getStreamVolume(AudioManager.STREAM_ALARM)
-                } catch (_: Exception) {
+                for (i in watched.indices) {
+                    val level = try {
+                        audio.getStreamVolume(watched[i])
+                    } catch (_: Exception) {
+                        return
+                    }
+                    if (level == startLevels[i]) continue
+                    Log.i(
+                        TAG,
+                        "volume key moved ${streamName(watched[i])} " +
+                            "${startLevels[i]} → $level — stopping the recitation",
+                    )
+                    stop()
                     return
                 }
-                if (level >= startLevel) {
-                    handler.postDelayed(this, POLL_INTERVAL_MS)
-                    return
-                }
-                Log.i(TAG, "alarm volume dropped $startLevel → $level — stopping the recitation")
-                stop()
+                handler.postDelayed(this, POLL_INTERVAL_MS)
             }
         }
         volumePoll = poll
         handler.postDelayed(poll, POLL_INTERVAL_MS)
+    }
+
+    /** For the one log line that says which key the reader actually pressed. */
+    private fun streamName(stream: Int): String = when (stream) {
+        AudioManager.STREAM_ALARM -> "alarm"
+        AudioManager.STREAM_RING -> "ring"
+        AudioManager.STREAM_NOTIFICATION -> "notification"
+        AudioManager.STREAM_MUSIC -> "media"
+        else -> "stream $stream"
     }
 
     private fun stopWatchingStreamVolume() {

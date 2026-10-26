@@ -4,17 +4,21 @@ import 'package:noor_masjid_time/main.dart' as app;
 
 /// One prayer must arrive as one notification.
 ///
-/// With no advance notice the reminder banner lands on the prayer time
-/// itself — the same minute the alarm-stream player rises with its
-/// "Azaan playing" card — and the reader saw two cards for one prayer:
-/// "It is time for Fajr" and, behind it, the recitation. Both cannot stay:
-/// the playback card is not optional (a foreground service may not run
-/// without one, and it carries the only STOP AZAN handle a locked phone
-/// has), so the banner is what stands down, and only where the card is
-/// genuinely going to speak.
+/// The Dart-side banner and the Kotlin-side card used to take turns at it,
+/// and which one spoke depended on how far before the prayer the reader had
+/// set the reminder: with an advance notice both were armed — "Maghrib in 5
+/// minutes" behind the recitation's "Azaan playing" — and with no notice at
+/// all only the recitation was, so a phone on vibrate declined the clip and
+/// left nothing. Two cards, or none, out of one rule that was only ever
+/// asking one question.
 ///
-/// These tests pin that boundary — when the banner is held back, and the
-/// three cases where it must still be armed.
+/// The question is answered once now: does this prayer's bell carry a clip?
+/// If it does, `AzaanAlarmReceiver` owns the card — it posts it when the
+/// alarm fires whether or not the recitation is allowed to sound, and posts
+/// it again when the clip ends. If it does not, the banner is the only voice
+/// there is and it must speak.
+///
+/// These tests pin both halves of that boundary.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -22,36 +26,25 @@ void main() {
   final AzanSound silent = azanSoundByKey('silent');
 
   group('the recitation card is the notification when…', () {
-    test('the bell carries a clip and has no notice to give — the reported bug', () {
+    test('the bell carries a clip — the reported bug', () {
       // The default: `_notifyOffsets` starts every prayer at -1 ("at the
-      // prayer time"), and the default sound is "Makkah Full Azaan".
-      expect(app.NotificationService.recitationIsTheCard(clip, -1, android: true), isTrue);
-      expect(app.NotificationService.recitationIsTheCard(clip, 0, android: true), isTrue);
-    });
-
-    test('the reader opted the prayer in with no notice set', () {
-      // Favourite-masjid alerts arrive with `minutesBefore == 0` unless the
-      // reader picked an offset — same instant, same single card.
-      expect(app.NotificationService.recitationIsTheCard(clip, 0, android: true), isTrue);
+      // prayer time") and the default sound is "Makkah Full Azaan". The
+      // offset used to be part of this answer, which is what put two cards
+      // in the shade for a reader who had set "5 min before": the banner
+      // left at T−5 and the clip at T. The clip now leaves from `fire`
+      // like the banner does, so there is only ever one moment to speak at
+      // — and the receiver posts for it either way.
+      expect(app.NotificationService.recitationIsTheCard(clip, android: true), isTrue);
     });
   });
 
   group('the banner is still armed because…', () {
-    test('an advance notice is its own event, minutes before the clip', () {
-      // "Fajr in 10 minutes" fires at T−10 and the recitation at T: two
-      // instants, so the two never collide into a duplicate.
-      expect(
-        app.NotificationService.recitationIsTheCard(clip, 10, android: true),
-        isFalse,
-      );
-    });
-
     test('a bell on "None (silent)" has no card to speak for it', () {
       // No `androidRaw` means no recitation arms at all — the banner is
       // the only thing that will ever appear, so it must.
       expect(silent.androidRaw, isNull);
       expect(
-        app.NotificationService.recitationIsTheCard(silent, 0, android: true),
+        app.NotificationService.recitationIsTheCard(silent, android: true),
         isFalse,
       );
     });
@@ -59,7 +52,7 @@ void main() {
     test('off Android there is no Kotlin player to post a card', () {
       // iOS keeps the clip in the banner itself; the desktop has neither.
       expect(
-        app.NotificationService.recitationIsTheCard(clip, 0, android: false),
+        app.NotificationService.recitationIsTheCard(clip, android: false),
         isFalse,
       );
     });

@@ -2086,21 +2086,16 @@ class NotificationService {
   /// Whether [prayer]'s recitation card *is* its notification — so the
   /// banner must not be scheduled at all.
   ///
-  /// With no advance notice the banner lands on the prayer time itself, the
-  /// same minute `AzaanPlaybackService` rises with "Azaan playing" — two
-  /// cards for one prayer, one of them a duplicate of the other. Something
-  /// has to give, and it cannot be the playback card: a foreground service
-  /// may not run without one, and it carries the only STOP AZAN handle that
-  /// reaches a locked phone. So on Android, where that player exists, an
-  /// armed clip stands in for the banner whenever the two would fire
-  /// together ([minutesBefore] ≤ 0 means "at the prayer time").
+  /// It always is on Android, as long as the prayer's bell carries a clip.
+  /// [PrayerCard] on the Kotlin side owns that card end to end: it posts when
+  /// the alarm fires, whether or not the recitation is allowed to sound, and
+  /// it posts the same card again when the clip ends, with `STOP AZAN` in
+  /// place of `Snooze 10 min`. One owner, one id, one card.
   ///
-  /// The banner still arms everywhere the card cannot speak for it:
+  /// The banner still arms everywhere that owner cannot speak for it:
   ///
-  ///  * an advance notice — "Fajr in 10 minutes" is its own event, sent
-  ///    minutes before the clip starts, so the two never collide;
-  ///  * a bell on `silent` — no `androidRaw`, no recitation, and the banner
-  ///    is the only thing that will appear;
+  ///  * a bell on `silent` — no `androidRaw`, no recitation, no receiver, so
+  ///    the banner is the only thing that will appear;
   ///  * off Android — there is no Kotlin player, so the banner is the only
   ///    audible path iOS and the desktop have.
   ///
@@ -2108,13 +2103,10 @@ class NotificationService {
   /// callers take the real answer from [Platform].
   @visibleForTesting
   static bool recitationIsTheCard(
-    AzanSound sound,
-    int minutesBefore, {
+    AzanSound sound, {
     bool? android,
   }) =>
-      (android ?? Platform.isAndroid) &&
-      sound.androidRaw != null &&
-      minutesBefore <= 0;
+      (android ?? Platform.isAndroid) && sound.androidRaw != null;
 
   static AndroidNotificationChannel _azanChannel() => const AndroidNotificationChannel(
         _azanChannelId,
@@ -2487,23 +2479,33 @@ class NotificationService {
         fire.minute,
       );
 
-      // One prayer must produce one notification. Which card speaks for it
-      // is decided before anything is armed: if the recitation rises on
-      // this very minute, that card is the reminder and the banner is
-      // skipped rather than stacked behind it.
+      // One prayer must produce one notification, and exactly one body says
+      // which. It is computed once because both owners of that card — the
+      // Dart-side banner and the Kotlin-side receiver that posts it when a
+      // clip is armed — have to write the same words, or a reader who
+      // silences their phone would be told something different from a reader
+      // who does not.
       final AzanSound sound = _bellSound(key);
-      if (recitationIsTheCard(sound, minutesBefore)) {
+      final String cardTitle =
+          '${prayerByKey(key).label} • ${settings.format(prayerTime)}';
+      final String cardBody = minutesBefore < 0
+          ? 'It is time for ${prayerByKey(key).label}.'
+          : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.';
+
+      // Which card speaks for the prayer is decided before anything is
+      // armed. With a clip in place that card is the recitation's, and it is
+      // posted by `AzaanAlarmReceiver` at `fire` — so the banner is held back
+      // rather than stacked behind it.
+      if (recitationIsTheCard(sound)) {
         debugPrint('Azan ▸ $key: recitation card stands in for the banner '
-            '(both land on the prayer time) — one prayer, one notification');
+            '(both land on the same instant) — one prayer, one notification');
       } else {
         try {
           await _plugin.zonedSchedule(
             id: _azanId(key),
             scheduledDate: when,
-            title: '${prayerByKey(key).label} • ${settings.format(prayerTime)}',
-            body: minutesBefore < 0
-                ? 'It is time for ${prayerByKey(key).label}.'
-                : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.',
+            title: cardTitle,
+            body: cardBody,
             notificationDetails: _azanDetailsFor(key),
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             matchDateTimeComponents: DateTimeComponents.time,
@@ -2518,10 +2520,8 @@ class NotificationService {
             await _plugin.zonedSchedule(
               id: _azanId(key),
               scheduledDate: when,
-              title: '${prayerByKey(key).label} • ${settings.format(prayerTime)}',
-              body: minutesBefore < 0
-                  ? 'It is time for ${prayerByKey(key).label}.'
-                  : '${prayerByKey(key).label} in $minutesBefore minutes at your masjid.',
+              title: cardTitle,
+              body: cardBody,
               notificationDetails: _azanDetailsFor(key),
               androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
               matchDateTimeComponents: DateTimeComponents.time,
@@ -2534,25 +2534,30 @@ class NotificationService {
         }
       }
 
-      // The banner and the recitation are two different instants whenever an
-      // advance notice is set: `fire` is the prayer time less that notice
-      // and the banner fires there, while the recitation belongs to the
-      // prayer time itself — "Fajr in 10 minutes" is a note, not an Azaan,
-      // and playing the whole clip at the offset is what made the phone
-      // recite minutes before any timetable said so. Both share this
-      // prayer's id, so one `cancelAzan()` still retires the pair.
+      // The recitation belongs to *this* instant, `fire` — the prayer time
+      // less whatever the reader chose in the chips.
       //
-      // They are one and the same instant when no notice is set — which is
-      // when [recitationIsTheCard] has held the banner back above, leaving
-      // exactly one card. And the clip itself is this *prayer's* bell: a
-      // bell left on `silent` hands back a sound with no `androidRaw`, so no
-      // twin arms at all — the banner alone is what that state promised.
+      // It used to be armed a `minutesBefore` later, at the prayer time
+      // itself, on the reasoning that "Fajr in 10 minutes" is a note and not
+      // an Azaan. That reasoning read the chips backwards: in "Only at
+      // Jamaat time" mode the row is *when the Azaan happens*, so a reader
+      // who picked "5 min before" got a notification five minutes early and
+      // a recitation on the dot — the Azaan arriving at a moment they had
+      // not asked for. The banner and the clip now leave together, which is
+      // also what makes [recitationIsTheCard] above safe: there is only ever
+      // one card because there is only ever one moment.
+      //
+      // Both share this prayer's id, so one `cancelAzan()` still retires the
+      // pair. And the clip itself is this *prayer's* bell: a bell left on
+      // `silent` hands back a sound with no `androidRaw`, so no twin arms at
+      // all — the banner alone is what that state promised.
       if (sound.androidRaw != null) {
         await AzaanAlarm.schedule(
           id: _azanId(key),
-          at: fire.add(Duration(minutes: minutesBefore < 0 ? 0 : minutesBefore)),
+          at: fire,
           raw: sound.androidRaw!,
-          title: '${prayerByKey(key).label} • ${settings.format(prayerTime)}',
+          title: cardTitle,
+          body: cardBody,
         );
       }
     }
@@ -2695,7 +2700,7 @@ class NotificationService {
     // clip armed, the recitation card at +10 min *is* the snoozed alert, so
     // no second banner is queued to arrive beside it.
     final AzanSound sound = _bellSound(key);
-    if (recitationIsTheCard(sound, 0)) {
+    if (recitationIsTheCard(sound)) {
       debugPrint('Azan ▸ snoozed $key: recitation card stands in for the '
           'banner — one prayer, one notification');
     } else {
@@ -2726,6 +2731,7 @@ class NotificationService {
         at: at,
         raw: sound.androidRaw!,
         title: 'Snoozed • ${prayerByKey(key).label}',
+        body: 'Ten minutes back, as you asked.',
         recurring: false,
       );
     } catch (error) {
@@ -2874,11 +2880,17 @@ class NotificationService {
           fire = fire.add(const Duration(days: 1));
         }
 
-        // Same one-prayer-one-card rule as the calculated reminders: when
-        // the Jamaat recitation rises on this very minute, its card is the
-        // alert and the banner stays unscheduled behind it.
+        // Same one-prayer-one-card rule as the calculated reminders, and the
+        // same reason for it: with a clip in place the receiver posts this
+        // prayer's card at `fire`, so the banner would only be a second voice
+        // saying the same thing.
         final AzanSound sound = _bellSound(key);
-        if (recitationIsTheCard(sound, minutesBefore)) {
+        final String cardTitle =
+            '${prayerByKey(key).label} • ${settings.format(atTime)}';
+        final String cardBody = minutesBefore == 0
+            ? 'Jamaat at $where.'
+            : '${prayerByKey(key).label} in $minutesBefore minutes at $where.';
+        if (recitationIsTheCard(sound)) {
           debugPrint('Azan ▸ $where/$key: recitation card stands in for the '
               'banner — one prayer, one notification');
         } else {
@@ -2893,10 +2905,8 @@ class NotificationService {
                 fire.hour,
                 fire.minute,
               ),
-              title: '${prayerByKey(key).label} • ${settings.format(atTime)}',
-              body: minutesBefore == 0
-                  ? 'Jamaat at $where.'
-                  : '${prayerByKey(key).label} in $minutesBefore minutes at $where.',
+              title: cardTitle,
+              body: cardBody,
               notificationDetails: _azanDetailsFor(key),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
               matchDateTimeComponents: DateTimeComponents.time,
@@ -2908,18 +2918,20 @@ class NotificationService {
           }
         }
 
-        // The split holds whenever an advance notice is set: the banner
-        // fires at `fire` (Jamaat less that notice), the recitation at the
-        // Jamaat time itself — and where there is no notice, the banner was
-        // held back above because this card already speaks. One id retires
-        // both regardless — and it is this prayer's own bell that decides
-        // whether the recitation arms at all.
+        // The recitation leaves at `fire` — Jamaat less whatever the reader
+        // chose in the chips — because that is what the chips are: *when*
+        // this prayer's Azaan happens. Arming it a `minutesBefore` later
+        // meant a reader who asked for "5 min before" got the notification
+        // early and the Azaan on the dot, which is the complaint that started
+        // this. One id retires the pair regardless — and it is this prayer's
+        // own bell that decides whether the recitation arms at all.
         if (sound.androidRaw != null) {
           await AzaanAlarm.schedule(
             id: base + p,
-            at: fire.add(Duration(minutes: minutesBefore)),
+            at: fire,
             raw: sound.androidRaw!,
-            title: '${prayerByKey(key).label} • ${settings.format(atTime)}',
+            title: cardTitle,
+            body: cardBody,
           );
         }
       }
@@ -3072,7 +3084,7 @@ class NotificationService {
       // speak for it, the banner is held back exactly as it is held back at
       // Fajr; a probe firing two cards would be demonstrating a screen the
       // reader no longer gets.
-      if (recitationIsTheCard(sound, 0)) {
+      if (recitationIsTheCard(sound)) {
         debugPrint('Noor ▸ closed-app test: recitation card stands in for '
             'the banner — one test, one notification');
       } else {
@@ -3111,6 +3123,7 @@ class NotificationService {
           at: when,
           raw: sound.androidRaw!,
           title: 'Closed-app test',
+          body: 'This fired with Noor shut — exactly what a prayer time does.',
           // Not recurring: a diagnostic that resurrects itself every morning
           // would be indistinguishable from the bug it exists to test for.
           recurring: false,
