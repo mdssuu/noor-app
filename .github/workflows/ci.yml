@@ -46,14 +46,11 @@ jobs:
       # Patch flutter_inappwebview_android (AGP 8+ compatibility)
       - name: Patch flutter_inappwebview_android
         run: |
-          FILE="C:\Users\user/.pub-cache/hosted/pub.dev/flutter_inappwebview_android-*/android/build.gradle"
-          if [ -f  ] || ls  2>/dev/null; then
-            sed -i "s|getDefaultProguardFile('proguard-android.txt')|getDefaultProguardFile('proguard-android-optimize.txt')|g"  2>/dev/null || true
-            sed -i 's|getDefaultProguardFile("proguard-android.txt")|getDefaultProguardFile("proguard-android-optimize.txt")|g'  2>/dev/null || true
-            echo "Patched inappwebview_android"
-          else
-            echo "inappwebview_android build.gradle not found in cache"
-          fi
+          find C:\Users\user/.pub-cache -name "build.gradle" -path "*flutter_inappwebview_android*/android/build.gradle" | while read f; do
+            echo "Patching "
+            sed -i "s|getDefaultProguardFile('proguard-android.txt')|getDefaultProguardFile('proguard-android-optimize.txt')|g" "" || true
+            sed -i 's|getDefaultProguardFile("proguard-android.txt")|getDefaultProguardFile("proguard-android-optimize.txt")|g' "" || true
+          done
 
       - name: Analyze
         run: flutter analyze
@@ -124,14 +121,11 @@ jobs:
       # Patch flutter_inappwebview_android (AGP 8+ compatibility)
       - name: Patch flutter_inappwebview_android
         run: |
-          FILE="C:\Users\user/.pub-cache/hosted/pub.dev/flutter_inappwebview_android-*/android/build.gradle"
-          if [ -f  ] || ls  2>/dev/null; then
-            sed -i "s|getDefaultProguardFile('proguard-android.txt')|getDefaultProguardFile('proguard-android-optimize.txt')|g"  2>/dev/null || true
-            sed -i 's|getDefaultProguardFile("proguard-android.txt")|getDefaultProguardFile("proguard-android-optimize.txt")|g'  2>/dev/null || true
-            echo "Patched inappwebview_android"
-          else
-            echo "inappwebview_android build.gradle not found in cache"
-          fi
+          find C:\Users\user/.pub-cache -name "build.gradle" -path "*flutter_inappwebview_android*/android/build.gradle" | while read f; do
+            echo "Patching "
+            sed -i "s|getDefaultProguardFile('proguard-android.txt')|getDefaultProguardFile('proguard-android-optimize.txt')|g" "" || true
+            sed -i 's|getDefaultProguardFile("proguard-android.txt")|getDefaultProguardFile("proguard-android-optimize.txt")|g' "" || true
+          done
 
       # Runner par RAM ~8 GB hai. Debug build R8 nahi chalata, is liye 3 GB
       # heap kaafi hai - zyada nahi, warna daemon OOM ho jaata hai.
