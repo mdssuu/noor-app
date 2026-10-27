@@ -123,6 +123,18 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Patch flutter_inappwebview_android (AGP 8+ compatibility)
+      - name: Patch flutter_inappwebview_android
+        run: |
+          FILE="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_android-*/android/build.gradle"
+          if [ -f $FILE ] || ls $FILE 2>/dev/null; then
+            sed -i "s|getDefaultProguardFile('proguard-android.txt')|getDefaultProguardFile('proguard-android-optimize.txt')|g" $FILE 2>/dev/null || true
+            sed -i 's|getDefaultProguardFile("proguard-android.txt")|getDefaultProguardFile("proguard-android-optimize.txt")|g' $FILE 2>/dev/null || true
+            echo "Patched inappwebview_android"
+          else
+            echo "inappwebview_android build.gradle not found in cache"
+          fi
+
       # Runner par RAM ~8 GB hai. R8 (release build ka minifier) heap ke saath
       # chalta hai, is liye 3 GB de rahe hain - zyada nahi, warna OOM ho jata hai.
       - name: Cap Gradle memory
