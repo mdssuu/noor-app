@@ -2070,9 +2070,10 @@ class NotificationService {
   /// three-state switch on Home.
   ///
   /// A bell not on `azan` gets the silent sound, which both halves of the
-  /// reminder read the same way: no ringer-stream twin (no `androidRaw`)
-  /// and, on iOS, a banner posted with `presentSound: false`. A bell that
-  /// *is* on `azan` must actually recite even when the profile's global
+  /// reminder read the same way: an alarm armed with [_silentRaw] — a card
+  /// with nothing to hear — and, on iOS, a banner posted with
+  /// `presentSound: false`. A bell that *is* on `azan` must actually recite
+  /// even when the profile's global
   /// pick is "None (silent)" — the reader opted this prayer in, so the
   /// built-in Makkah clip stands in rather than leaving a silent azan.
   static AzanSound _bellSound(String prayer) {
@@ -2083,30 +2084,46 @@ class NotificationService {
     return global.key == 'silent' ? azanSoundByKey('makkah') : global;
   }
 
-  /// Whether [prayer]'s recitation card *is* its notification — so the
-  /// banner must not be scheduled at all.
+  /// The `raw` an alarm carries when its bell has no clip of its own: the
+  /// sentinel `AzaanAlarmReceiver` reads as "post the card, play nothing".
   ///
-  /// It always is on Android, as long as the prayer's bell carries a clip.
-  /// [PrayerCard] on the Kotlin side owns that card end to end: it posts when
-  /// the alarm fires, whether or not the recitation is allowed to sound, and
-  /// it posts the same card again when the clip ends, with `STOP AZAN` in
-  /// place of `Snooze 10 min`. One owner, one id, one card.
+  /// It is the same string `azanSoundByKey('silent')` is keyed by, so the
+  /// receiver's one branch answers both "this prayer's bell is muted" and
+  /// "the profile asked for no sound" with the same word.
+  static const String _silentRaw = 'silent';
+
+  /// Whether the Kotlin side's card *is* the prayer's notification — so the
+  /// Dart banner must not be scheduled at all.
+  ///
+  /// It is on Android, for **every** armed bell, clip or no clip.
+  /// [PrayerCard] owns that card end to end: it posts when the alarm fires,
+  /// whether or not the recitation is allowed to sound, and it posts the same
+  /// card again when the clip ends, with `STOP AZAN` in place of
+  /// `Snooze 10 min`. One owner, one id, one card.
+  ///
+  /// A bell on `silent` used to be the exception — no `androidRaw`, so no
+  /// alarm, so the Dart banner was left to speak alone. That made Mute the
+  /// one state whose card depended on `flutter_local_notifications` arming an
+  /// *exact* alarm: the grant Android hands out and takes back, and the one
+  /// path in this pair with no fallback of its own. A reader read it as
+  /// "Mute switches the whole thing off" on the same phone where an Azaan
+  /// bell still arrived, because that half rides `setAlarmClock` — no
+  /// permission to revoke, a ledger that survives a reboot, and a receiver
+  /// that posts whatever it fires. A muted bell arms that same alarm now,
+  /// with [_silentRaw] as its sound, and the receiver posts the card and
+  /// returns before a single byte is played. The banner stays out of the way
+  /// so there is still exactly one card.
   ///
   /// The banner still arms everywhere that owner cannot speak for it:
   ///
-  ///  * a bell on `silent` — no `androidRaw`, no recitation, no receiver, so
-  ///    the banner is the only thing that will appear;
   ///  * off Android — there is no Kotlin player, so the banner is the only
-  ///    audible path iOS and the desktop have.
+  ///    path iOS and the desktop have.
   ///
   /// [android] exists for the test host, which is never Android: production
   /// callers take the real answer from [Platform].
   @visibleForTesting
-  static bool recitationIsTheCard(
-    AzanSound sound, {
-    bool? android,
-  }) =>
-      (android ?? Platform.isAndroid) && sound.androidRaw != null;
+  static bool receiverOwnsTheCard({bool? android}) =>
+      android ?? Platform.isAndroid;
 
   static AndroidNotificationChannel _azanChannel() => const AndroidNotificationChannel(
         _azanChannelId,
@@ -2499,11 +2516,11 @@ class NotificationService {
               'Awwal time.';
 
       // Which card speaks for the prayer is decided before anything is
-      // armed. With a clip in place that card is the recitation's, and it is
-      // posted by `AzaanAlarmReceiver` at `fire` — so the banner is held back
-      // rather than stacked behind it.
-      if (recitationIsTheCard(sound)) {
-        debugPrint('Azan ▸ $key: recitation card stands in for the banner '
+      // armed. On Android that card is `AzaanAlarmReceiver`'s, posted at
+      // `fire` whether the bell carries a clip or not — so the banner is
+      // held back rather than stacked behind it.
+      if (receiverOwnsTheCard()) {
+        debugPrint('Azan ▸ $key: receiver card stands in for the banner '
             '(both land on the same instant) — one prayer, one notification');
       } else {
         try {
@@ -2550,22 +2567,20 @@ class NotificationService {
       // who picked "5 min before" got a notification five minutes early and
       // a recitation on the dot — the Azaan arriving at a moment they had
       // not asked for. The banner and the clip now leave together, which is
-      // also what makes [recitationIsTheCard] above safe: there is only ever
+      // also what makes [receiverOwnsTheCard] above safe: there is only ever
       // one card because there is only ever one moment.
       //
       // Both share this prayer's id, so one `cancelAzan()` still retires the
-      // pair. And the clip itself is this *prayer's* bell: a bell left on
-      // `silent` hands back a sound with no `androidRaw`, so no twin arms at
-      // all — the banner alone is what that state promised.
-      if (sound.androidRaw != null) {
-        await AzaanAlarm.schedule(
-          id: _azanId(key),
-          at: fire,
-          raw: sound.androidRaw!,
-          title: cardTitle,
-          body: cardBody,
-        );
-      }
+      // pair. And the arm is this *prayer's* own bell: a bell on `silent`
+      // goes out with [_silentRaw], which the receiver answers with the card
+      // and nothing else — Mute is a silent alarm, never a missing one.
+      await AzaanAlarm.schedule(
+        id: _azanId(key),
+        at: fire,
+        raw: sound.androidRaw ?? _silentRaw,
+        title: cardTitle,
+        body: cardBody,
+      );
     }
 
     debugPrint('Azan ▸ scheduled $scheduled reminder(s) for '
@@ -2703,11 +2718,11 @@ class NotificationService {
     final DateTime at = DateTime.now().add(const Duration(minutes: 10));
 
     // The snoozed pair is decided the same way as the original: with the
-    // clip armed, the recitation card at +10 min *is* the snoozed alert, so
-    // no second banner is queued to arrive beside it.
+    // receiver armed, its card at +10 min *is* the snoozed alert, so no
+    // second banner is queued to arrive beside it.
     final AzanSound sound = _bellSound(key);
-    if (recitationIsTheCard(sound)) {
-      debugPrint('Azan ▸ snoozed $key: recitation card stands in for the '
+    if (receiverOwnsTheCard()) {
+      debugPrint('Azan ▸ snoozed $key: receiver card stands in for the '
           'banner — one prayer, one notification');
     } else {
       try {
@@ -2730,12 +2745,11 @@ class NotificationService {
     // The same per-prayer answer the original alarm used: a bell on
     // `silent` snoozes into silence too, never into a recitation it was
     // switched away from.
-    if (sound.androidRaw == null) return; // no recitation this bell carries — banner only
     try {
       await AzaanAlarm.schedule(
         id: _snoozeId,
         at: at,
-        raw: sound.androidRaw!,
+        raw: sound.androidRaw ?? _silentRaw,
         title: 'Snoozed • ${prayerByKey(key).label}',
         body: 'Ten minutes back, as you asked.',
         recurring: false,
@@ -2887,17 +2901,17 @@ class NotificationService {
         }
 
         // Same one-prayer-one-card rule as the calculated reminders, and the
-        // same reason for it: with a clip in place the receiver posts this
-        // prayer's card at `fire`, so the banner would only be a second voice
-        // saying the same thing.
+        // same reason for it: on Android the receiver posts this prayer's
+        // card at `fire` either way, so the banner would only be a second
+        // voice saying the same thing.
         final AzanSound sound = _bellSound(key);
         final String cardTitle =
             '${prayerByKey(key).label} • ${settings.format(atTime)}';
         final String cardBody = minutesBefore == 0
             ? 'Jamaat at $where.'
             : '${prayerByKey(key).label} in $minutesBefore minutes at $where.';
-        if (recitationIsTheCard(sound)) {
-          debugPrint('Azan ▸ $where/$key: recitation card stands in for the '
+        if (receiverOwnsTheCard()) {
+          debugPrint('Azan ▸ $where/$key: receiver card stands in for the '
               'banner — one prayer, one notification');
         } else {
           try {
@@ -2930,16 +2944,15 @@ class NotificationService {
         // meant a reader who asked for "5 min before" got the notification
         // early and the Azaan on the dot, which is the complaint that started
         // this. One id retires the pair regardless — and it is this prayer's
-        // own bell that decides whether the recitation arms at all.
-        if (sound.androidRaw != null) {
-          await AzaanAlarm.schedule(
-            id: base + p,
-            at: fire,
-            raw: sound.androidRaw!,
-            title: cardTitle,
-            body: cardBody,
-          );
-        }
+        // own bell that decides what arms at all: its clip, or the silent
+        // alarm that carries a muted prayer's card with nothing to hear.
+        await AzaanAlarm.schedule(
+          id: base + p,
+          at: fire,
+          raw: sound.androidRaw ?? _silentRaw,
+          title: cardTitle,
+          body: cardBody,
+        );
       }
     }
 
@@ -3063,9 +3076,9 @@ class NotificationService {
   /// wake a closed app — precisely the condition every real prayer time has
   /// to survive, and the one a "Test Azaan" button can never reach because
   /// that plays in-process with the app open. What lands is what a prayer
-  /// now shows: the recitation card when the clip is armed — one card, the
-  /// same [recitationIsTheCard] rule Fajr obeys — and the banner only for
-  /// a bell with no clip behind it.
+  /// now shows: the receiver's card — one card, the same
+  /// [receiverOwnsTheCard] rule Fajr obeys — and the banner only off
+  /// Android, where there is no receiver to post one.
   static Future<void> testReminder() async {
     try {
       await applyAzanChannel();
@@ -3086,12 +3099,12 @@ class NotificationService {
       final tz.TZDateTime when =
           tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
       final AzanSound sound = _azanSound;
-      // The probe shows what a prayer shows — one card. Where the clip will
-      // speak for it, the banner is held back exactly as it is held back at
-      // Fajr; a probe firing two cards would be demonstrating a screen the
-      // reader no longer gets.
-      if (recitationIsTheCard(sound)) {
-        debugPrint('Noor ▸ closed-app test: recitation card stands in for '
+      // The probe shows what a prayer shows — one card. Where the receiver
+      // will speak for it, the banner is held back exactly as it is held
+      // back at Fajr; a probe firing two cards would be demonstrating a
+      // screen the reader no longer gets.
+      if (receiverOwnsTheCard()) {
+        debugPrint('Noor ▸ closed-app test: receiver card stands in for '
             'the banner — one test, one notification');
       } else {
         try {
@@ -3123,18 +3136,16 @@ class NotificationService {
       // the clip is the ringer-stream player's job, and this is the one button
       // that puts that exact path to work with the app shut.
       await AzaanAlarm.cancel(_testReminderId);
-      if (sound.androidRaw != null) {
-        await AzaanAlarm.schedule(
-          id: _testReminderId,
-          at: when,
-          raw: sound.androidRaw!,
-          title: 'Closed-app test',
-          body: 'This fired with Noor shut — exactly what a prayer time does.',
-          // Not recurring: a diagnostic that resurrects itself every morning
-          // would be indistinguishable from the bug it exists to test for.
-          recurring: false,
-        );
-      }
+      await AzaanAlarm.schedule(
+        id: _testReminderId,
+        at: when,
+        raw: sound.androidRaw ?? _silentRaw,
+        title: 'Closed-app test',
+        body: 'This fired with Noor shut — exactly what a prayer time does.',
+        // Not recurring: a diagnostic that resurrects itself every morning
+        // would be indistinguishable from the bug it exists to test for.
+        recurring: false,
+      );
     } catch (error) {
       debugPrint('Noor ▸ scheduled test reminder failed: $error');
     }

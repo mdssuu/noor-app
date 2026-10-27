@@ -27,6 +27,13 @@ jobs:
     name: Build & Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Shorebird (over-the-air patches) is opt-in: jab tak repo me
+    # SHOREBIRD_TOKEN secret nahi hai, yeh bilkul wahi `flutter build apk`
+    # chalta hai jo aaj chal raha hai. Secret daalte hi har master push ek
+    # Shorebird release ban jaata hai — jo APK usse banti hai wo phone par
+    # bina naya APK download kiye update ho sakti hai (`shorebird patch`).
+    env:
+      HAS_SHOREBIRD: ${{ secrets.SHOREBIRD_TOKEN != '' }}
     steps:
       # Runner image me ~50 GB preinstalled tools hote hain (dotnet, ghc, swift,
       # NDK...) jo is build ke kaam ke nahi hain. Bina free kiye Flutter ka
@@ -104,6 +111,15 @@ jobs:
           channel: stable
           cache: true
 
+      # Shorebird apna Flutter laata hai (isi liye isko Flutter step ke baad
+      # lagaya gaya hai — dono ka version wahi hai, jo shorebird.yaml app_id
+      # se juda hua hai). Jab tak token nahi hai yeh step chhoot jaata hai.
+      - name: Setup Shorebird
+        if: env.HAS_SHOREBIRD == 'true'
+        uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -118,26 +134,64 @@ jobs:
       # Sirf wahi ABIs jo asli phone use karte hain (arm + arm64). x86_64
       # emulator ke liye hai - use chhodne se native libs aadhi se bhi kam
       # hoti hain aur build disk par fail hona nahi chahiye.
+      #
+      # Shorebird wale raaste par `shorebird release android` wahi gradle
+      # build chalata hai, bas uske saath updater bhi andar chala jaata hai.
+      # Ek release version dobara upload nahi hota (CLI seedha "Please bump
+      # your version number" bolta hai), aur har push ka version same rehta
+      # hai - isliye versionCode yahan CI ka run number hai. Isi wajah se har
+      # rolling APK apne aap patch ke layak banti jaati hai, bina pubspec
+      # har push par haath se badlaye.
       - name: Build release APK
-        run: flutter build apk --release --target-platform android-arm,android-arm64
+        env:
+          # Sirf yehi step shorebird ko token deta hai — baaki saare actions
+          # (checkout, java, flutter) ko key kabhi nahi dikhti.
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$HAS_SHOREBIRD" = "true" ]; then
+            echo "Shorebird release: versionCode=${{ github.run_number }}"
+            shorebird release android \
+              --artifact apk \
+              --target-platform android-arm,android-arm64 \
+              --build-number "${{ github.run_number }}"
+          else
+            echo "SHOREBIRD_TOKEN nahi hai - plain flutter build (jaise pehle)"
+            flutter build apk --release --target-platform android-arm,android-arm64
+          fi
 
       - name: Name the APK and check its signature
         run: |
+          set -euo pipefail
           VERSION=$(grep -E '^version:' pubspec.yaml | cut -d' ' -f2)
-          APK=build/app/outputs/flutter-apk/app-release.apk
-          if [ ! -f "$APK" ]; then
-            echo "::error::APK nahi bani - $APK missing hai"
+          # `flutter build apk` dono jagah likhta hai; shorebird ka build
+          # sirf apk/release/ par chhod sakta hai. Dono me se jo mile wahi
+          # aage ka source hai.
+          APK=""
+          for CAND in build/app/outputs/flutter-apk/app-release.apk build/app/outputs/apk/release/app-release.apk; do
+            if [ -f "$CAND" ]; then APK="$CAND"; break; fi
+          done
+          if [ -z "$APK" ]; then
+            echo "::error::APK nahi bani - flutter-apk/ aur apk/release/ dono khaali"
+            ls -R build/app/outputs || true
             exit 1
           fi
+          OUT=build/app/outputs/flutter-apk
+          mkdir -p "$OUT"
           if [ "$GITHUB_REF" = "refs/heads/master" ]; then
-            cp "$APK" build/app/outputs/flutter-apk/noor-masjid-time-latest.apk
+            cp "$APK" "$OUT/noor-masjid-time-latest.apk"
           else
-            cp "$APK" "build/app/outputs/flutter-apk/noor-masjid-time-${VERSION}.apk"
+            cp "$APK" "$OUT/noor-masjid-time-${VERSION}.apk"
           fi
-          ls -lh build/app/outputs/flutter-apk/
+          # Neeche wale upload steps hamesha flutter-apk/ se padhte hain, so
+          # shorebird ke raaste par bhi wahi naam wahin rakha jaata hai.
+          if [ "$APK" != "$OUT/app-release.apk" ]; then
+            cp "$APK" "$OUT/app-release.apk"
+          fi
+          ls -lh "$OUT/"
           # Agar galat key se sign ho gayi to nayi APK purani ke upar install
           # nahi hoti - abhi pakad lo, phone par pata chalne se behtar hai.
-          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)
           if [ -n "$APKSIGNER" ]; then
             "$APKSIGNER" verify --print-certs "$APK" | head -20 || true
           else

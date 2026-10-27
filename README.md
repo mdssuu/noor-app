@@ -79,6 +79,37 @@ Everything lives in one file: [`lib/main.dart`](lib/main.dart).
   place the Home card uses. Tap the date under the greeting, or the
   **Hijri calendar** row on the Profile tab. The month is navigated by
   month, so “next” always lands on the 1st.
+- **Manual add & edit** — no board to photograph? Search a place (Nominatim +
+  Overpass, free, no key), set the pin on an OpenStreetMap screen, correct a
+  wrong one later with **Fix location** (old coordinates kept, so the mistake
+  stays recoverable), edit any time field and save. The same 200 m de-dup
+  applies, so a scan and a manual entry can never become two masjids.
+- **Qibla** — a real compass: the magnetometer with the accelerometer undoing
+  the tilt, so a phone held up in the mosque reads the same as one flat on a
+  table. The bearing is the great-circle one, computed from wherever the app
+  already thinks you are — pinned city first, last GPS fix otherwise — the
+  same location rule Home's prayer times follow.
+- **Tasbeeh** — one button, one thumb: the count, the round of thirty-three
+  (or ninety-nine), a buzz when a round closes, and a total that survives
+  leaving the screen, closing the app and a reboot, because it is written per
+  bead rather than per visit.
+- **Tracker** — the salah log: a month of dots, a streak and today's five in
+  one row, **entirely on the device** — no account, no network, scoped to the
+  signed-in profile. A log of a person's prayers is theirs.
+- **Ramadan banner** — during Ramadan only: which fast of the month, the end
+  of Sehri and the Iftar time, all read off the same Umm al-Qura table as the
+  Hijri date above it, so they can never disagree by a day.
+- **Home-screen widget** — `NoorWidgetProvider.kt` puts the next two days of
+  prayer times on the launcher, so the app does not have to be opened at all.
+- **Share today's times** — the share sheet (`share_plus`) sends today's five
+  to WhatsApp or anywhere else, with the masjid's own Jamaat times in them.
+- **About & Privacy** — the real version and build number from
+  `package_info_plus`, the developer's mailto, the licenses, a Play Store
+  link, and the **Privacy Policy read in an in-app browser**
+  (`flutter_inappwebview`) from its public URL
+  ([`docs/privacy.md`](docs/privacy.md)) — one document, never a copy that
+  drifted inside the binary — with the full text kept as an offline fallback
+  and an "open in browser" action for the same link.
 - **Owner's remote config** — one Firestore document (`app_config/general`)
   decides what every phone opens on and looks like: new-user defaults (method,
   madhab, minutes-before, clip, time format, Hijri offset, language), the
@@ -308,12 +339,64 @@ a cloud container defined by `.devcontainer/`.
 
 ---
 
+## Shorebird (over-the-air updates)
+
+`shorebird.yaml` (app_id `9983a193-6145-4bc2-8f31-ed8084125834`) repo me hai,
+par ab tak kisi build me updater use nahi ho raha tha — Shorebird ke patches
+us APK par lagte hain jo **Shorebird se bani ho**, aur har build plain
+`flutter build apk` se banti thi. Dono workflows ab Shorebird chala sakti hain,
+aur dono **opt-in** hain: jab tak secret nahi hai, bilkul wahi kaam hota hai jo
+aaj hota hai.
+
+### Ek baar setup (5 minute)
+
+1. <https://console.shorebird.dev> par account banao aur repo ko **Import** karo
+   (ya `shorebird login` → `shorebird init` chalao — `app_id` wahi rehna chahiye
+   jo `shorebird.yaml` me hai, warna naya app ban jaayega).
+2. Console me **Account → API Keys → Create** — key `sb_api_…` se shuru hoti hai
+   aur **ek hi baar** dikhti hai.
+3. GitHub par: repo **Settings → Secrets and variables → Actions → New secret**,
+   naam `SHOREBIRD_TOKEN`, value wo key. (Repo me, `.env` me, kabhi bhi nahi.)
+
+Bas. `release.yml` agla build Shorebird se karega; `shorebird releases list`
+yahi releases dikhayega.
+
+### Release vs patch — konsa kab
+
+| Command | Kya karta hai | Kahan |
+| --- | --- | --- |
+| `shorebird release android` | Nayi installable baseline — usi build par aage ke patches lagte hain | `release.yml`, har `master` push par (secret hone par) |
+| `shorebird patch android` | **OTA**: phone par lagi APK ko bina naye download ke update karta hai (sirf Dart) | `patch.yml`, haath se (**Actions → Shorebird OTA patch → Run workflow**) |
+
+Release ka version **dobara upload nahi hota** (CLI “Please bump your version
+number” bolta hai), isliye release har push par `--build-number <run number>`
+leti hai — `pubspec.yaml` haath se badlane ki zaroorat nahi, aur versionCode
+hamesha badhta rehta hai.
+
+Patch chalane se pehle:
+
+```bash
+shorebird releases list          # kaunsa release kaunse version par hai
+```
+
+Phir **Actions → Shorebird OTA patch → Run workflow** me wo version daalo
+(`1.6.1+42` — `+` ke baad wala number khud build number bana liya jaata hai).
+
+**Dhyan:** Shorebird patches sirf **Dart** le jaate hain. `android/`, Gradle,
+native plugins ya assets badalne wali push ke liye patch `--allow-native-diffs`
+ke saath force mat karo — naya release chahiye (jo `release.yml` waise bhi har
+push par bana deti hai). Rolling APK ka link waise bhi wahi rehta hai:
+<https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk>
+
+---
+
 ## CI status
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `CI` | every push / PR to `master` | `flutter analyze` + `flutter test` + debug APK artifact |
-| `Release APK` | every push to `master`, tag `v*`, or a manual run | release APK → GitHub Release (`releases/tag/latest` + versioned tags) |
+| `Release APK` | every push to `master`, tag `v*`, or a manual run | release APK → GitHub Release (`releases/tag/latest` + versioned tags); `SHOREBIRD_TOKEN` hona to `shorebird release android` se |
+| `Shorebird OTA patch` | manual run only | `shorebird patch android` → phone tak OTA update (Dart-only changes) |
 
 > **Runner ki disk:** GitHub ke runner image me ~50 GB preinstalled tools hote
 > hain (dotnet, ghc, swift, NDK). Bina hataye Flutter ka Gradle build

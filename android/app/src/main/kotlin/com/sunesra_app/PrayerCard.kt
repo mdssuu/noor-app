@@ -35,9 +35,12 @@ import android.util.Log
  * Either way it is the *same* id as the `flutter_local_notifications` banner
  * for that prayer, which is what makes the two interchangeable: whichever
  * posts last replaces the other rather than joining it. The Dart side stops
- * posting altogether whenever an armed clip exists (see
- * `NotificationService.recitationIsTheCard`), so on a phone with a bell set
- * there is exactly one owner and no race to break the promise.
+ * posting altogether whenever this receiver is armed (see
+ * `NotificationService.receiverOwnsTheCard`), so on a phone with a bell set
+ * there is exactly one owner and no race to break the promise. The bell's
+ * own state decides what the alarm carries, not who posts: a muted bell
+ * arms the same alarm with the silent sentinel, and the receiver hands it
+ * straight here without a byte of sound.
  *
  * The channel is the Dart side's own, `azan_reminders_v2`, and the settings
  * below mirror `_azanChannel()` exactly. Two channels would mean two entries
