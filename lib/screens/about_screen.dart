@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_look.dart';
 import '../main.dart' show GoldCard, NoorColors, SectionHeader;
+import 'privacy_policy_screen.dart';
 
 /// The app's own page: what version this is, who built it, and how to reach
 /// him. Opened from the Profile tab's "About Noor" row.
@@ -21,6 +22,17 @@ class AboutScreen extends StatelessWidget {
   /// hai hi nahi - purana link 404 deta tha.)
   static const String downloadUrl =
       'https://github.com/mdssuu/noor-app/releases/download/latest/noor-masjid-time-latest.apk';
+
+  /// The listing this build would open on Google Play.
+  ///
+  /// The package is `com.sunesra_app`, and as of writing Play returns 404 for
+  /// it — the app ships as the APK above, not through Play. This therefore
+  /// points at the Play search for the app's own name: it opens the store, it
+  /// never pretends to be a listing that does not exist, and the day the app
+  /// is published the same constant takes the exact
+  /// `store/apps/details?id=com.sunesra_app` URL and nothing else changes.
+  static const String playStoreUrl =
+      'https://play.google.com/store/search?q=Noor%20Masjid%20Time&c=apps';
 
   Future<void> _open(String url) async {
     bool opened = false;
@@ -167,6 +179,27 @@ class AboutScreen extends StatelessWidget {
                   title: 'Download / update the app',
                   subtitle: 'The latest APK — share this link with anyone',
                   onTap: () => _open(downloadUrl),
+                ),
+                Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.25)),
+                _AboutRow(
+                  icon: Icons.storefront_outlined,
+                  title: 'Find it on Google Play',
+                  subtitle: 'Search the store for “Noor • Masjid Time”',
+                  onTap: () => _open(playStoreUrl),
+                ),
+                Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.25)),
+                _AboutRow(
+                  icon: Icons.shield_outlined,
+                  title: 'Privacy Policy',
+                  // Same screen Settings opens: the live page in an in-app
+                  // browser, with the URL in its own bar so it can be copied
+                  // or read outside the app.
+                  subtitle: 'Read it in the in-app browser',
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const PrivacyPolicyScreen(),
+                    ),
+                  ),
                 ),
                 Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.25)),
                 _AboutRow(

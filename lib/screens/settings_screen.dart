@@ -9,6 +9,7 @@ import '../app_look.dart';
 import '../app_settings.dart';
 import '../main.dart';
 import '../screens/admin_panel_screen.dart';
+import '../screens/privacy_policy_screen.dart';
 import '../services/admin_access.dart';
 import '../services/azaan_alarm.dart';
 import '../services/azan_player.dart';
@@ -266,44 +267,16 @@ class _SettingsScreenState extends State<SettingsScreen>
     });
   }
 
+  /// The policy lives at a public URL and is read in an in-app browser — see
+  /// [PrivacyPolicyScreen]. It used to be a dialog full of hardcoded prose,
+  /// which meant the copy inside the app and the copy on the web could drift
+  /// apart; now there is one document and a browser to read it in. The screen
+  /// keeps the old text as its offline fallback, so a reader with no signal
+  /// still gets the policy rather than a blank panel.
   Future<void> _showPrivacy() async {
-    await showDialog<void>(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        backgroundColor: NoorColors.cream,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: Text('Privacy Policy',
-            style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700)),
-        content: SingleChildScrollView(
-          child: Text(
-            '• Your GPS position is used on this device only — to sort the '
-                'nearby list, compute prayer times and measure “800m away” '
-                'badges. It is never sent to a server.\n\n'
-            '• Masjid names, times and photos you submit are written to '
-                'Cloud Firestore so neighbours see the same board. Your display '
-                'name and profile picture are stored with the update.\n\n'
-            '• Photos are stored as a small compressed copy (under 450 KB) so '
-                'they load without a separate image host.\n\n'
-            '• Board photos are read on your device first. If a Gemini key is '
-                'configured, the photo is also sent once to Google so the '
-                'Jamaat column can be read; with no key configured the photo '
-                'never leaves your phone.\n\n'
-            '• Search uses OpenStreetMap’s Nominatim — free, no account, no '
-                'tracking. Google Sign-In shares only your name, email and '
-                'avatar.\n\n'
-            '• Azan reminders, favourites and settings live in local storage on '
-                'your phone and are removed when you uninstall the app.',
-            style: GoogleFonts.outfit(fontSize: 12.5, height: 1.6),
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('Close',
-                style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.w700, color: NoorColors.ink)),
-          ),
-        ],
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const PrivacyPolicyScreen(),
       ),
     );
   }

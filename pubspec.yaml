@@ -93,6 +93,7 @@ dependencies:
   # --- About screen: real app version + mailto/GitHub links ---
   package_info_plus: ^10.2.2
   url_launcher: ^6.3.1
+  flutter_inappwebview: ^6.1.5
 
 dev_dependencies:
   flutter_test:

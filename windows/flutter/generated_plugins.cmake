@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   firebase_auth
   firebase_core
+  flutter_inappwebview_windows
   flutter_timezone
   geolocator_windows
   share_plus

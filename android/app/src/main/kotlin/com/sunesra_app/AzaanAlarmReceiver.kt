@@ -21,9 +21,10 @@ import java.util.concurrent.TimeUnit
  *
  * Every branch that ends without a recitation still ends with a card. That is
  * the whole point of moving the posting here: the Dart side holds its banner
- * back whenever an armed clip exists, on the understanding that this receiver
- * speaks for the prayer — and a receiver that answered "the phone is on
- * vibrate" by returning quietly left the reader with nothing at all, which is
+ * back whenever this receiver is armed — clip or no clip — on the
+ * understanding that this receiver speaks for the prayer, and a receiver
+ * that answered "the phone is on vibrate" by returning quietly left the
+ * reader with nothing at all, which is
  * how a reminder could be *set*, *armed* and *silent* at once.
  *
  * Silence stays silence, and it is asked here. The recitation rides the alarm
@@ -68,15 +69,17 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra(EXTRA_TITLE)
         val body = intent.getStringExtra(EXTRA_BODY)
 
-        // A bell switched to `silent` promises a banner and nothing else.
-        // The Dart side posts that one itself — it knows the prayer is on a
-        // silent bell and never arms an alarm for it — so there is nothing
-        // to add here, unless the alarm in hand is a *snooze*, which this
-        // side owns end to end and would otherwise vanish without a trace.
+        // A bell on `silent` promises a card and no recitation — that is
+        // what Mute means, and what the profile's own "None (silent)" means.
+        // This alarm exists precisely so that promise is kept on the path
+        // that needs no exact-alarm grant to keep it: the card is posted,
+        // nothing is played, and the reader is left with the one
+        // notification they asked for. The Dart banner used to be the only
+        // voice in this state, and it was the half that could go missing
+        // while an Azaan bell on the same phone still arrived.
         if (sound == "silent") {
-            if (id == PrayerCard.SNOOZE_ID) {
-                PrayerCard.show(context, id, title, body, sound, playing = false)
-            }
+            Log.i(TAG, "azaan $id fired on a muted bell — card only")
+            PrayerCard.show(context, id, title, body, sound, playing = false)
             return
         }
 

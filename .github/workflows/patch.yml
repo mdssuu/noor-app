@@ -1,0 +1,124 @@
+name: Shorebird OTA patch
+
+# Phone par already lagi hui APK ko bina naya download karwaye update karne
+# ka raasta. Ye workflow sirf haath se chalti hai (workflow_dispatch), kyunki
+# har master push apna ek naya release bana chuka hota hai — patch usi release
+# par jaata hai jo kisi ke phone par installed hai.
+#
+# Setup (ek baar):
+#   1. https://console.shorebird.dev → Account → API Keys → key banao
+#   2. repo Settings → Secrets and variables → Actions → SHOREBIRD_TOKEN
+#   3. shorebird.yaml ka app_id usi account ka hona chahiye (`shorebird init`)
+#
+# Chalane se pehle target release dekh lo:
+#   shorebird releases list
+#
+# Shorebird patches sirf Dart code le jaate hain — android/, Gradle files aur
+# native plugins badalne wali push ke liye naya release banana padta hai
+# (release.yml khud har master push par yahi karti hai).
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Kaunsa release patch hoga, jaise 1.6.1+42 (khaali = is build ka apna version)"
+        required: false
+        default: ""
+      build_number:
+        description: "Us release ka build number, jaise 42 (khaali = upar wale se khud nikal lo, warna pubspec)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    name: Publish OTA patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      HAS_SHOREBIRD: ${{ secrets.SHOREBIRD_TOKEN != '' }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      BUILD_NUMBER: ${{ inputs.build_number }}
+    steps:
+      # Bina key ke shorebird non-interactive me ruk jaata hai — pehle hi
+      # saaf batana behtar hai.
+      - name: SHOREBIRD_TOKEN set hai?
+        if: env.HAS_SHOREBIRD != 'true'
+        run: |
+          echo "::error::SHOREBIRD_TOKEN secret nahi mili. console.shorebird.dev par Account → API Keys se key banao aur repo ke Settings → Secrets me SHOREBIRD_TOKEN naam se save karo."
+          exit 1
+
+      # Release workflow ke barabar: runner par itni jagah nahi hoti ki
+      # Gradle release build bina free kiye chale.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet \
+            /usr/local/share/boost \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/local/share/vcpkg \
+            /usr/local/share/miniconda \
+            /usr/local/.ghcup \
+            /opt/ghc \
+            /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/julia* \
+            /usr/local/lib/android/sdk/ndk* \
+            /usr/local/lib/android/sdk/cmake \
+            /usr/local/lib/android/sdk/extras \
+            /usr/local/lib/android/sdk/sources
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Shorebird
+        uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+
+      # Patch ka build ek asli gradle release build hai, isliye usse wahi
+      # signing chahiye jo release ko mili thi. (Secret na ho to wahi
+      # chup-chaap debug key lag jaati hai, jaise release workflow me bhi
+      # pehle se guard hai.)
+      - name: Reveal private build files
+        env:
+          NOOR_KEY_PROPERTIES: ${{ secrets.NOOR_KEY_PROPERTIES }}
+          NOOR_KEY_P12_B64: ${{ secrets.NOOR_KEY_P12_B64 }}
+          NOOR_GMS_JSON_B64: ${{ secrets.NOOR_GMS_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${NOOR_KEY_PROPERTIES:-}" ]; then
+            printf '%s\n' "$NOOR_KEY_PROPERTIES" > android/key.properties
+          fi
+          if [ -n "${NOOR_KEY_P12_B64:-}" ]; then
+            printf '%s' "$NOOR_KEY_P12_B64" | base64 -d > android/app/noor-release.p12
+          fi
+          if [ -n "${NOOR_GMS_JSON_B64:-}" ]; then
+            printf '%s' "$NOOR_GMS_JSON_B64" | base64 -d > android/app/google-services.json
+          fi
+
+      - name: Publish the patch
+        env:
+          # Sirf yehi step shorebird ko token deta hai.
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+        run: |
+          set -euo pipefail
+          # `1.6.1+42` diya hai aur build number nahi, to wahi `42` uska
+          # versionCode hona chahiye — warna patch us release ko pakadta hi
+          # nahi (ya native-diff warning det hai).
+          if [ -z "$BUILD_NUMBER" ] && [[ "$RELEASE_VERSION" == *+* ]]; then
+            BUILD_NUMBER="${RELEASE_VERSION##*+}"
+          fi
+          ARGS=(android)
+          if [ -n "$RELEASE_VERSION" ]; then ARGS+=(--release-version "$RELEASE_VERSION"); fi
+          if [ -n "$BUILD_NUMBER" ]; then ARGS+=(--build-number "$BUILD_NUMBER"); fi
+          echo "shorebird patch ${ARGS[*]}"
+          shorebird patch "${ARGS[@]}"
