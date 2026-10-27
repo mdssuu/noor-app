@@ -308,7 +308,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     switch (_settings.azaanTiming) {
       case kAzaanTimingAwwalOnly:
         return 'The Azaan plays at the calculated Awwal time — the earliest '
-            'waqt each prayer begins.';
+            'moment each prayer begins.';
       case kAzaanTimingBoth:
         return 'The Azaan plays twice for each prayer: once at the '
             'calculated Awwal time, then again at your favourite masjid’s '

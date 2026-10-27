@@ -3548,10 +3548,16 @@ class FavouriteWatcher {
         final String name = (data['masjidName'] as String?)?.trim().isNotEmpty == true
             ? (data['masjidName'] as String)
             : 'Masjid';
+        // `messages.first` is "Fajr: 5:12" — the time itself carries a colon,
+        // so splitting on every colon used to hand the reader "12". One cut,
+        // at the first colon, keeps both halves whole.
+        final String first = messages.first;
+        final int cut = first.indexOf(':');
+        final String changed = cut < 0 ? first.trim() : first.substring(0, cut).trim();
+        final String clock = cut < 0 ? '' : first.substring(cut + 1).trim();
         await NotificationService.show(
           title: '$name • Prayer time updated',
-          body: '$name ka ${messages.first.split(':').first.trim()} time update hua: '
-              '${messages.first.split(':').last.trim()}',
+          body: '$changed time at $name is now $clock.',
         );
         // The board moved, so so did the alerts aimed at it.
         unawaited(NotificationService.scheduleFavouriteAlerts());
@@ -7200,12 +7206,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
               validator: (String? value) {
                 if (!_nameRequired) return null;
                 if (value == null || value.trim().isEmpty) {
-                  return 'Masjid ka naam kya hai? e.g. Masjid Al-Falah';
+                  return 'What is the masjid’s name? e.g. Masjid Al-Falah';
                 }
                 return null;
               },
               decoration: InputDecoration(
-                labelText: 'Masjid ka naam kya hai? e.g. Masjid Al-Falah',
+                labelText: 'What is the masjid’s name? e.g. Masjid Al-Falah',
                 // This field is filled white by the theme, so the light accent
                 // glyphs would vanish against it — the deepened shade shows.
                 prefixIcon: const Icon(Icons.mosque_outlined, color: NoorColors.emeraldDeep),

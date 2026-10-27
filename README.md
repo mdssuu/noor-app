@@ -30,7 +30,7 @@ Everything lives in one file: [`lib/main.dart`](lib/main.dart).
   (FAJR / FAJAR, ZUHR / ZOHAR / DHUHR / ZOHR, ASAR / ASR, MAGHRIB / MAGRIB, ISHA / ESHA, JUMA / JUMMA …)
   with `05:15`, `5.15`, `5:15 AM`, `18:45` normalised to strict `HH:MM` 24-hour.
 - **Verification screen** — scanned photo preview, six editable time fields, required
-  *“Masjid ka naam kya hai? e.g. Masjid Al-Falah”* field when the name could not be read,
+  *“What is the masjid’s name? e.g. Masjid Al-Falah”* field when the name could not be read,
   `Scan Again` + `Save & Confirm for All`.
 - **De-duplication** — if a masjid with the same name already exists within **200 m**, that
   document is updated instead of creating a new one.
@@ -49,7 +49,7 @@ Everything lives in one file: [`lib/main.dart`](lib/main.dart).
   cheap to add later.
 - **Favourites + notifications** — ids in `users/{uid}/favourites` (mirrored to
   SharedPreferences). A listener on each favourite fires
-  *“Masjid Al-Falah ka Maghrib time update hua: 18:20”* through
+  *“Maghrib time at Masjid Al-Falah is now 18:20”* through
   `flutter_local_notifications`, with the Android 13+ permission requested.
 - **Azaan sound that actually plays** — the clip is bundled in
   `android/app/src/main/res/raw/` and played by a native player on the
