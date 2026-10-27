@@ -209,11 +209,11 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
     final String current = AppSettings.instance.bellModeFor(key);
     final List<Widget> children = <Widget>[
       _bellChoice(context, kBellAzan, 'Azaan', Icons.notifications_active_outlined,
-          'Card bhi, azaan bhi', current),
+          'The card and the recitation both', current),
       _bellChoice(context, kBellSilent, 'Mute', Icons.notifications_outlined,
-          'Card aayega, azaan nahi', current),
+          'The card, without any sound', current),
       _bellChoice(context, kBellOff, 'Band', Icons.notifications_off_outlined,
-          'Na azaan, na card', current),
+          'Nothing at all, not even the card', current),
     ];
 
     return AlertDialog(
@@ -227,7 +227,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
-            'Azaan ka ye band hona chahiye?',
+            'Should the Azaan play for this prayer?',
             style: GoogleFonts.outfit(fontSize: 13, color: NoorColors.onGlassMuted),
           ),
           const SizedBox(height: 8),
@@ -238,7 +238,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(
-            'Abhi nahi — band kar diya rakhta hai',
+            'Not now — keep it as it is',
             style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: NoorColors.muted),
           ),
         ),
