@@ -168,6 +168,25 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  /// Says what "None (silent)" did when the row that chose it was tapped.
+  ///
+  /// The mirror of [_explainSilenced] for the other quiet answer: that one
+  /// explains a phone whose *ringer* refused, this one a choice the reader
+  /// made on purpose. Both exist for the same reason — a row that answers
+  /// nothing has to say which nothing it meant.
+  void _explainSilentPick() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Text(
+          '“None (silent)” is selected — your reminders will stay silent, '
+          'and nothing is playing now.',
+        ),
+      ),
+    );
+  }
+
   /// Copies the chosen Azaan into the phone's own ringtone list and says
   /// where to find it — because a row the reader cannot find is the same as
   /// no row at all.
@@ -1139,6 +1158,21 @@ class _SettingsScreenState extends State<SettingsScreen>
                     // old channel has been dropped and rebuilt around it.
                     if (changed) await NotificationService.applyAzanChannel();
                     if (!mounted) return;
+                    // "None (silent)" has nothing to rehearse — see the
+                    // sheet's row for why the built-in stand-in was the
+                    // complaint wearing this screen's clothes. Quiet whatever
+                    // an earlier row started, and say so; the only test that
+                    // owes an answer on a silent profile is "Test Azaan"
+                    // below, which names itself.
+                    if (sound.key == 'silent') {
+                      // Said first, stopped second — the same order as the
+                      // sheet's row: the sentence is the row's answer, and it
+                      // must not wait on a platform round-trip that can be
+                      // slow or (under a faked clock) never come back.
+                      _explainSilentPick();
+                      unawaited(AzanPlayer.instance.stop());
+                      return;
+                    }
                     final bool started =
                         await AzanPlayer.instance.preview(sound.key);
                     // A row that selected a clip and then made no noise is
@@ -1168,8 +1202,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                           ),
                         ),
+                        // Same reason as the sheet's rows: a play button on
+                        // "None (silent)" promises a sound the row is built
+                        // not to make, so the mute sign carries the row
+                        // instead.
                         Icon(
-                          playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                          sound.key == 'silent'
+                              ? Icons.volume_off_outlined
+                              : playing
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.play_circle_outline,
                           size: 22,
                           color: playing ? NoorColors.onGlassGold : NoorColors.gold,
                         ),

@@ -220,16 +220,35 @@ class AzaanPlaybackService : Service() {
 
                     // Some builds dispatch a key press here rather than to
                     // the transport methods; stop is what was asked for.
+                    //
+                    // The volume keys belong here too, and that is the whole
+                    // of the "the rocker dies with the screen off" report.
+                    // With the display *on*, a focused window of ours
+                    // ([AzaanActivity], or [MainActivity] for a preview) gets
+                    // the key first and answers it. The instant the screen
+                    // goes fully off, no window of any app holds input focus
+                    // — so `onKeyDown` never runs — and because this session
+                    // handles media buttons, the system hands the press here
+                    // instead, as a media-button event. Left returning `false`
+                    // it went unanswered *and* never touched a stream, which
+                    // is why [AzaanAudio.watchStreamVolume] saw nothing
+                    // either: two roads, both silent, and the recitation was
+                    // left running over a locked phone. The rocker is the
+                    // mute the reader reaches for; it is off, strictly.
                     override fun onMediaButtonEvent(intent: Intent): Boolean {
                         val key = keyEventFrom(intent) ?: return false
-                        if (key.keyCode != KeyEvent.KEYCODE_MEDIA_STOP &&
-                            key.keyCode != KeyEvent.KEYCODE_MEDIA_PAUSE &&
-                            key.keyCode != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-                        ) {
-                            return false
+                        when (key.keyCode) {
+                            KeyEvent.KEYCODE_MEDIA_STOP,
+                            KeyEvent.KEYCODE_MEDIA_PAUSE,
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                            KeyEvent.KEYCODE_VOLUME_DOWN,
+                            KeyEvent.KEYCODE_VOLUME_UP,
+                            -> {
+                                stopFromKey()
+                                return true
+                            }
+                            else -> return false
                         }
-                        stopFromKey()
-                        return true
                     }
 
                     private fun keyEventFrom(intent: Intent): KeyEvent? =

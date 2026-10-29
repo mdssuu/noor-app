@@ -101,4 +101,59 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     expect(AzanPlayer.instance.playingKey, isNull);
   });
+
+  testWidgets('“None (silent)” files the choice and rehearses nothing',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final AppSettings settings = AppSettings.instance;
+    settings.setAzanSound('makkah');
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: TodayPrayerCard(
+          latitude: 19.0760,
+          longitude: 72.8777,
+          areaName: 'Mumbai',
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Azaan sound & timing'));
+    await tester.pumpAndSettle();
+
+    // The row is the fifth of six, so it is below the fold on a short
+    // window — the tap has to be brought to it rather than fired blind.
+    final Finder silentRow = find.text('None (silent)');
+    await tester.ensureVisible(silentRow);
+    await tester.pumpAndSettle();
+    await tester.tap(silentRow);
+    await tester.pumpAndSettle();
+
+    expect(settings.azanSound, 'silent',
+        reason: 'the choice itself still lands — only the rehearsal is gone');
+    expect(
+      AzanPlayer.instance.playingKey,
+      isNull,
+      reason: 'choosing “None (silent)” used to answer with a full Makkah '
+          'recitation, which is the one sound the reader had just asked the '
+          'app not to make',
+    );
+    expect(
+      find.textContaining('none on this tap'),
+      findsOneWidget,
+      reason: 'and the row says what it did instead of staying wordless — a '
+          'tap that answers nothing is the broken-button bug in new clothes',
+    );
+    expect(
+      find.byIcon(Icons.volume_off_outlined),
+      findsOneWidget,
+      reason: 'the row wears the mute sign, not a play button promising a '
+          'sound it is built not to make',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }

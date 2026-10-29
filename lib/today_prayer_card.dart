@@ -918,6 +918,24 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
     if (!mounted) return;
     setState(() => _note = null);
 
+    // "None (silent)" has nothing to rehearse — and answering it with the
+    // built-in Azaan was the whole of the complaint: a reader who had just
+    // chosen *silence* heard a full recitation the moment the row was
+    // tapped. The row's only honest job is to file the choice and quiet
+    // whatever an earlier row started, which is the one sound "silent" can
+    // make without contradicting itself.
+    if (sound.key == 'silent') {
+      // The note lands first, on its own: the row's answer is the sentence,
+      // and a sentence the reader has to wait on a platform round-trip for
+      // is a sentence that can go missing when that round-trip does.
+      setState(() {
+        _note = '“None (silent)” is what your reminders will use from now on — '
+            'no Azaan at prayer time, and none on this tap.';
+      });
+      unawaited(AzanPlayer.instance.stop());
+      return;
+    }
+
     final bool started = await AzanPlayer.instance.preview(sound.key);
     if (!mounted) return;
     setState(() {
@@ -925,12 +943,6 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
         _note = 'Your phone is on silent or vibrate, so nothing played — that '
             'is the Azaan staying quiet exactly as your reminders will. Turn '
             'the ringer up to hear it.';
-      } else if (sound.key == 'silent') {
-        // The one row with no clip of its own, standing in with the built-in
-        // one: hearing Azaan from "None (silent)" without a word would read
-        // as the choice having failed.
-        _note = '“None (silent)” is what your reminders will use from now on — '
-            'this was the built-in Azaan, so you know the row answered.';
       }
     });
   }
@@ -1027,8 +1039,16 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
                 ),
               ),
             ),
+            // The one row with nothing to play wears the mute sign instead of
+            // a play button: a play icon promising a sound on a row whose
+            // whole answer is silence is the same lie the preview used to
+            // tell, only drawn this time.
             Icon(
-              playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+              sound.key == 'silent'
+                  ? Icons.volume_off_outlined
+                  : playing
+                      ? Icons.stop_circle_outlined
+                      : Icons.play_circle_outline,
               size: 22,
               color: NoorColors.gold,
             ),

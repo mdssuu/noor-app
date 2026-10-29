@@ -82,4 +82,38 @@ void main() {
         reason: 'the flag has to be released with the instance, or every '
             'later stop would be dispatched for a service long gone.');
   });
+
+  // The volume rocker is the mute a reader reaches for at 5 a.m., and it
+  // stopped answering the moment the screen went fully off. Two roads exist
+  // for it and the screen-off case killed both at once: [AzaanActivity]'s
+  // `onKeyDown` needs a focused window, and with the display off no window
+  // of any app holds focus — while this session, which *does* still receive
+  // the press as a media-button event, returned `false` for volume keys
+  // without ever touching a stream, so the watcher one layer down saw
+  // nothing move either. Both halves are pinned here.
+  test('a volume key reaches the media session and is answered', () {
+    final String handler = block(service, 'override fun onMediaButtonEvent');
+    expect(handler, contains('KeyEvent.KEYCODE_VOLUME_DOWN'),
+        reason: 'with the screen off this session is the only road left, '
+            'and it was declining the very key the report is about.');
+    expect(handler, contains('KeyEvent.KEYCODE_VOLUME_UP'),
+        reason: 'either direction is the same press — the rocker means "off", '
+            'strictly, not "softer".');
+    expect(handler, contains('stopFromKey()'),
+        reason: 'and answering it means stopping, not returning true for a '
+            'keypress nothing then acted on.');
+  });
+
+  test('the rocker still has its own roads for the screen that is on', () {
+    final String activity = File(
+      'android/app/src/main/kotlin/com/sunesra_app/AzaanActivity.kt',
+    ).readAsStringSync();
+    expect(activity, contains('KEYCODE_VOLUME_DOWN'),
+        reason: 'the focused-window road is the strict one: it catches a '
+            'press that would change no stream at all, so a ring volume '
+            'already at zero still answers.');
+    expect(activity, contains('AzaanPlaybackService.stopFromAnywhere'),
+        reason: 'and it stops through the same door as every other road, or '
+            'two stops could race each other.');
+  });
 }
