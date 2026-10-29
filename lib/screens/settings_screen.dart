@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -165,6 +166,85 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
       ),
     );
+  }
+
+  /// Copies the chosen Azaan into the phone's own ringtone list and says
+  /// where to find it — because a row the reader cannot find is the same as
+  /// no row at all.
+  ///
+  /// The bridge answers with *how* it landed rather than a bare success:
+  /// `ok` carries `added` false when the list already held this title, worth
+  /// its own sentence since "already there" and "failed" read very
+  /// differently — while `denied` is Android 7-9's storage prompt refused
+  /// and `unsupported` a platform with no such list to offer.
+  Future<void> _addToPhoneRingtone() async {
+    final AzanSound chosen = azanSoundByKey(_settings.azanSound);
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+
+    // "None (silent)" has no clip to hand over — the same shape as the Test
+    // button's answer one row up: say which of the two the reader picked
+    // rather than exporting nothing at all.
+    if (chosen.androidRaw == null) {
+      messenger.showSnackBar(
+        const SnackBar(
+          duration: Duration(seconds: 6),
+          content: Text(
+            '“None (silent)” has no clip to add — tap an Azaan above first.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final String title = 'Noor Azaan - ${chosen.label}';
+    final ({bool added, String code}) outcome =
+        await AzaanAlarm.addToPhoneRingtone(chosen.key, title);
+    if (!mounted) return;
+
+    switch (outcome.code) {
+      case 'ok':
+        messenger.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text(
+              outcome.added
+                  ? 'Added — “$title” is in your phone’s ringtone list. Open '
+                      'Sound settings and choose it under Phone ringtone.'
+                  : '“$title” is already in your ringtone list — open Sound '
+                      'settings and choose it under Phone ringtone.',
+            ),
+            action: SnackBarAction(
+              label: 'Open sound settings',
+              onPressed: AzaanAlarm.openSoundSettings,
+            ),
+          ),
+        );
+      case 'denied':
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Storage was refused, so the clip cannot leave the app on this '
+              'phone. Allow storage for Noor and tap again.',
+            ),
+          ),
+        );
+      case 'unsupported':
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Only Android phones let Noor add to their ringtone list.',
+            ),
+          ),
+        );
+      default:
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Couldn’t add it to the ringtone list — please try again.',
+            ),
+          ),
+        );
+    }
   }
 
   @override
@@ -1131,6 +1211,21 @@ class _SettingsScreenState extends State<SettingsScreen>
               },
             ),
           ),
+          // The other half of "the volume keys reach this sound": inside the
+          // app the rocker already stops a recitation, but a clip the reader
+          // wants ringing from the *system* has to be in the phone's own
+          // ringtone list first — and an Azaan offered only as an alarm sound
+          // sits on a slider the rocker never moves. One tap copies the
+          // chosen clip in; the snackbar says where to pick it up.
+          if (defaultTargetPlatform == TargetPlatform.android)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: GradientButton(
+                label: 'Add to phone ringtone list',
+                icon: Icons.music_note_outlined,
+                onPressed: () => unawaited(_addToPhoneRingtone()),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
             child: Text(
@@ -1143,7 +1238,9 @@ class _SettingsScreenState extends State<SettingsScreen>
               'that file at exactly that volume, and either volume key stops '
               'it while it runs. Choosing “None” leaves the reminder as a '
               'silent vibration, and “Test Azaan” then plays the built-in one '
-              'so the path can still be checked.',
+              'so the path can still be checked. “Add to phone ringtone list” '
+              'hands the chosen clip to the phone’s own ringtone list as well, '
+              'where Sound settings can pick it up as the phone’s ringtone.',
               style: GoogleFonts.outfit(
                 fontSize: 11,
                 color: NoorColors.muted,

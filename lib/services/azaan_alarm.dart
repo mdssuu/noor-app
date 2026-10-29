@@ -243,6 +243,53 @@ class AzaanAlarm {
   static Future<void> openNotificationSettings() =>
       _call('openNotificationSettings');
 
+  /// Hands the clip named [sound] to the phone's own **ringtone list**,
+  /// called [title] there — the list Settings reads for "Phone ringtone".
+  ///
+  /// This is the other half of the rocker, for the sound the *system* is
+  /// asked to ring with. Inside the app the volume keys already reach a
+  /// recitation; the phone's own list is where they historically did not: a
+  /// ringtone rides the ringer's slider — the one the rocker moves — while
+  /// an alarm sound rides a slider of its own that no key press touches,
+  /// which is the whole complaint behind this call: an Azaan offered only as
+  /// an alarm is a sound the volume buttons cannot reach.
+  ///
+  /// The Kotlin side copies the very bytes the player would play (the
+  /// owner's download first, the bundled clip next), so the list cannot
+  /// carry an Azaan different from the one a reminder recites. It does not
+  /// go through [_call] for one reason: [_call] answers every refusal with
+  /// `null`, and the snackbar has different words for a refused storage
+  /// prompt than for a phone with no list to offer — so the native error
+  /// code comes back as `code` (`denied`, `export-failed`, `unsupported`),
+  /// with `added` false when the list already carried the title.
+  static Future<({bool added, String code})> addToPhoneRingtone(
+    String sound,
+    String title,
+  ) async {
+    try {
+      final Object? placed = await _channel.invokeMethod<Object?>(
+        'addToPhoneRingtone',
+        <String, Object?>{'sound': sound, 'title': title},
+      );
+      if (placed is! Map) return (added: false, code: 'failed');
+      return (added: placed['added'] == true, code: 'ok');
+    } on MissingPluginException {
+      // No Kotlin side at all — desktop, web, tests, iOS. Not a broken tap:
+      // a platform that keeps its ringtone list to itself.
+      return (added: false, code: 'unsupported');
+    } on PlatformException catch (error) {
+      // Loud for `bad-args` like [_call]'s own habit; every other code is
+      // returned to the snackbar, which has the sentence for it.
+      debugPrint('Noor ▸ azaan alarm ▸ addToPhoneRingtone failed '
+          '[${error.code}]: ${error.message}');
+      return (added: false, code: error.code);
+    }
+  }
+
+  /// The phone's own sound settings — where "Phone ringtone" lives, under
+  /// whatever name its maker gave it.
+  static Future<void> openSoundSettings() => _call('openSoundSettings');
+
   /// Opens the system "Alarms & reminders" screen for this app. Returns once
   /// the user comes back, so callers can re-check.
   static Future<void> requestExactAlarm() => _call('requestExactAlarm');

@@ -3,6 +3,7 @@ package com.sunesra_app
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -21,9 +22,10 @@ import io.flutter.plugin.common.MethodChannel
  * It exists because a notification channel cannot cover every case: it plays
  * the bundled mp3 with the app closed, but not with the phone on silent, and
  * it cannot be re-tuned from Dart once Android has frozen it. Everything the
- * Dart side needs — arm an exact alarm, retire one, play a clip on the alarm
- * stream now, and ask for the two permissions that decide whether any of it
- * arrives on time — is answered from here.
+ * Dart side needs — arm an exact alarm, retire one, play a clip on the
+ * reader's own ringer, hand that clip to the phone's ringtone list, and ask
+ * for the permissions that decide whether any of it arrives — is answered
+ * from here.
  */
 class MainActivity : FlutterActivity() {
 
@@ -74,6 +76,22 @@ class MainActivity : FlutterActivity() {
         // notifications at all, and the phone's own "on the lock screen" one.
         private const val METHOD_LOCK_SCREEN_STATUS = "lockScreenStatus"
         private const val METHOD_OPEN_NOTIFICATION_SETTINGS = "openNotificationSettings"
+
+        // The Settings row that copies the chosen clip into the phone's own
+        // ringtone list, and the page that then holds "Phone ringtone".
+        private const val METHOD_ADD_TO_PHONE_RINGTONE = "addToPhoneRingtone"
+        private const val METHOD_OPEN_SOUND_SETTINGS = "openSoundSettings"
+
+        // Android 9 and below keep the public Ringtones folder behind these
+        // two; Android 10+ needs neither for a MediaStore row the app
+        // creates itself, and the manifest's declaration stops at 28 too.
+        private val LEGACY_RINGTONE_STORAGE = arrayOf(
+            android.Manifest.permission.READ_EXTERNAL_STORAGE,
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        )
+
+        /** Chosen by [addToPhoneRingtone]; answered from the callback. */
+        private const val REQUEST_STORAGE_FOR_RINGTONE = 4402
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -331,6 +349,28 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                // The reader asked for the chosen clip to appear in the
+                // phone's own ringtone list — the one "Settings > Sound >
+                // Phone ringtone" is built from — so the system can ring
+                // with it under the slider the volume keys actually move,
+                // rather than only as an alarm sound they never reach.
+                METHOD_ADD_TO_PHONE_RINGTONE -> {
+                    val sound = call.argument<String>("sound")
+                    val title = call.argument<String>("title")
+                    if (sound.isNullOrBlank() || title.isNullOrBlank()) {
+                        result.error("bad-args", "sound and title are required", null)
+                        return
+                    }
+                    addToPhoneRingtone(sound, title, result)
+                }
+
+                // The snackbar's "Open sound settings" — the walk to where
+                // the new entry waits to be picked.
+                METHOD_OPEN_SOUND_SETTINGS -> {
+                    openSoundSettings()
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (error: Exception) {
@@ -468,6 +508,105 @@ class MainActivity : FlutterActivity() {
             } catch (ignored: Exception) {
                 // A phone that refuses both leaves the row merely useless;
                 // it must not take the screen down with it.
+            }
+        }
+    }
+
+    /**
+     * The export parked behind Android 9's storage prompt.
+     *
+     * The channel result lives here while the prompt is up, because the
+     * answer to `requestPermissions` arrives in a callback with no other
+     * link to the call that asked. One at a time: a second tap while the
+     * first prompt is showing would strand the first reply, and Dart would
+     * await a result that is never coming.
+     */
+    private var pendingRingtone: Triple<String, String, MethodChannel.Result>? = null
+
+    /**
+     * Copies the clip into the phone's ringtone list, waiting out the one
+     * prompt older phones still need first.
+     *
+     * Android 10 and newer take the row without asking anything: the app
+     * owns what it inserts into MediaStore. Android 7–9 keep the public
+     * `Ringtones/` folder behind a runtime permission, and a prompt can
+     * only be answered while the reader is looking at it — so the reply is
+     * parked in [pendingRingtone] and the channel call is finished from
+     * [onRequestPermissionsResult], granted or refused. Either way the
+     * caller gets an answer, which is the whole point: a result never
+     * completed is a Settings screen waiting forever.
+     */
+    private fun addToPhoneRingtone(sound: String, title: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || legacyStorageHeld()) {
+            deliverRingtoneExport(sound, title, result)
+            return
+        }
+        if (pendingRingtone != null) {
+            result.error("busy", "the storage prompt is already on screen", null)
+            return
+        }
+        pendingRingtone = Triple(sound, title, result)
+        requestPermissions(LEGACY_RINGTONE_STORAGE, REQUEST_STORAGE_FOR_RINGTONE)
+    }
+
+    /** Both halves of the pre-Android 10 grant, or the prompt is still owed. */
+    private fun legacyStorageHeld(): Boolean =
+        checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** The one place a ringtone export can end: a row, or a logged refusal. */
+    private fun deliverRingtoneExport(
+        sound: String,
+        title: String,
+        result: MethodChannel.Result,
+    ) {
+        try {
+            result.success(PhoneRingtones.addToPhoneRingtone(this, sound, title))
+        } catch (error: Exception) {
+            Log.w(TAG, "cannot put $sound in the ringtone list: ${error.message}")
+            result.error("export-failed", error.message ?: "the clip could not be copied", null)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        if (requestCode == REQUEST_STORAGE_FOR_RINGTONE) {
+            val pending = pendingRingtone
+            pendingRingtone = null
+            if (pending != null) {
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+                if (granted) {
+                    deliverRingtoneExport(pending.first, pending.second, pending.third)
+                } else {
+                    Log.w(TAG, "storage refused — the clip stays inside the app")
+                    pending.third.error("denied", "storage permission refused", null)
+                }
+            }
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    /**
+     * The page that holds "Phone ringtone" — under whatever name the maker
+     * gave it. The snackbar says where to look; this is the walk there.
+     * `SOUND_SETTINGS` is the platform's own action and every OEM's settings
+     * app answers it; a build that does not falls back to the main settings
+     * page rather than an exception the reader cannot act on.
+     */
+    private fun openSoundSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_SOUND_SETTINGS))
+        } catch (error: Exception) {
+            Log.w(TAG, "cannot open sound settings: ${error.message}")
+            try {
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+            } catch (ignored: Exception) {
             }
         }
     }

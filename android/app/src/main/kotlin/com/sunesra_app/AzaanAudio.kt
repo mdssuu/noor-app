@@ -67,8 +67,13 @@ object AzaanAudio {
      * question, and it fails the build rather than the reader if a clip is
      * ever taken out of the tree. Unknown names still go through
      * `getIdentifier`, so a clip added later is not worse off than before.
+     *
+     * It is asked from outside as well: [PhoneRingtones] copies a clip into
+     * the phone's own ringtone list, and that row has to hold the *same*
+     * file the recitation plays, or the two could drift apart with nothing
+     * to notice.
      */
-    private fun bundledId(context: Context, sound: String): Int = when (sound) {
+    fun bundledId(context: Context, sound: String): Int = when (sound) {
         "azaan1" -> R.raw.azaan1
         "azaan2" -> R.raw.azaan2
         "azaan3" -> R.raw.azaan3

@@ -83,7 +83,7 @@ class AzanSound {
   /// File name (without extension) in `android/app/src/main/res/raw/`.
   ///
   /// This is what the notification channel plays with the app closed, and the
-  /// clip the alarm-stream player reaches for when no downloaded one exists.
+  /// clip the native player reaches for when no downloaded one exists.
   /// It is *not* what a silenced phone plays: silence is answered for, on
   /// every path, before any file is opened.
   final String? androidRaw;

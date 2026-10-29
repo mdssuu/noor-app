@@ -27,14 +27,15 @@ import java.util.concurrent.TimeUnit
  * reader with nothing at all, which is
  * how a reminder could be *set*, *armed* and *silent* at once.
  *
- * Silence stays silence, and it is asked here. The recitation rides the alarm
- * stream, which a ringer key does not mute, so unless this receiver asks
- * first "the phone is on silent" means nothing at all. It is asked before
- * [AzaanAudio.play] gets the chance as well — and before the service is
- * started — because a playback notification blinking over a clip nobody will
- * hear is a promise the reader can see but not hear. Today's alarm has
- * already rearmed itself by this point, so a declined prayer still owns
- * tomorrow.
+ * Silence stays silence, and it is asked here. The recitation rides the
+ * reader's own ringer now — a stream a silenced phone mutes anyway — but
+ * that is the stream answering, not this receiver, and a check left to the
+ * stream arrives after the player, the wake lock and the service are all
+ * already up. So it is asked before [AzaanAudio.play] gets the chance as
+ * well — and before the service is started — because a playback
+ * notification blinking over a clip nobody will hear is a promise the
+ * reader can see but not hear. Today's alarm has already rearmed itself by
+ * this point, so a declined prayer still owns tomorrow.
  */
 class AzaanAlarmReceiver : BroadcastReceiver() {
 
