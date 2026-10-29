@@ -271,6 +271,13 @@ void main() {
     expect(main, contains('raw: _bellRaw(key)'),
         reason: 'every scheduling site has to carry that name, or the alarm '
             'fires with the old clip.');
+    expect(main,
+        contains('if (sound.key == kCustomAzanKey) return kCustomAzanKey;'),
+        reason: 'the branch that turns the key into that file name is only '
+            'live once azanSoundByKey answers "custom" for a stored '
+            '"custom" — while it answered the first catalogue entry instead, '
+            'this line was unreachable and every alarm recited Makkah in '
+            'place of the clip the reader had chosen.');
 
     final String activity =
         File('android/app/src/main/kotlin/com/sunesra_app/MainActivity.kt')

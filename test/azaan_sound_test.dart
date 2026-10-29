@@ -60,5 +60,42 @@ void main() {
     test('a stored silent choice resolves to silence', () {
       expect(azanSoundByKey('silent').androidRaw, isNull);
     });
+
+    // A stored "custom" is a known key with no catalogue entry, and it used
+    // to answer `kAzanSounds.first` — Makkah. The lookup is one function,
+    // so the one wrong answer was everywhere a stored key was resolved: the
+    // alarm recited a clip the reader had *replaced*, at prayer time, with
+    // the app closed; and "Add to phone ringtone" handed the phone that
+    // same Makkah clip under a title the reader had never chosen. The
+    // preview did not show it, because the player asks the custom question
+    // before it ever reaches this function — which is why the bug could sit
+    // under a working "Test Azaan".
+    test('the reader’s own clip resolves to itself, not to the first entry',
+        () {
+      final AzanSound custom = azanSoundByKey(kCustomAzanKey);
+      expect(custom.key, kCustomAzanKey,
+          reason: 'the key a stored choice is written under has to be the '
+              'key it comes back as, or every caller reads a different clip.');
+      expect(kAzanSounds.any((AzanSound s) => s.key == kCustomAzanKey), isFalse,
+          reason: 'and it stays out of the catalogue on purpose: no bundled '
+              'resource, no URL, nothing any other phone could be seeded '
+              'with — it is one reader’s file.');
+      expect(custom.androidRaw, isNull,
+          reason: 'its bytes live on the reader’s phone; the Kotlin side '
+              'opens them by path and never asks for a resource id.');
+      expect(custom.label, isNotEmpty,
+          reason: 'a sound with nowhere to be named still has to read as '
+              'something in the admin panel’s summary.');
+    });
+
+    test('the clip is named by its file, the same name everywhere', () {
+      expect(customAzanName(''), '',
+          reason: 'no file picked, no name — the row keeps its own sentence '
+              'for that case.');
+      expect(customAzanName('/storage/emulated/0/Music/Adhan.mp3'), 'Adhan.mp3',
+          reason: 'a reader cares about Adhan.mp3, not the road to it.');
+      expect(customAzanName('Adhan.mp3'), 'Adhan.mp3',
+          reason: 'and a name with no road under it stays itself.');
+    });
   });
 }

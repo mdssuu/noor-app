@@ -1060,15 +1060,12 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
 
   /// The custom row's own label: the file's name, or the door that opens one.
   ///
-  /// `basename` rather than the whole path — a reader who picked
-  /// `/storage/emulated/0/Music/Adhan.mp3` cares about `Adhan.mp3`, and the
-  /// sheet has one line to say it in.
+  /// The name itself is [customAzanName] — the same answer the ringtone
+  /// export titles its entry with, so the row in the sheet and the row in
+  /// the phone's own list are recognisably one clip.
   String _customLabel(String path) {
     if (path.isEmpty) return 'Choose a file… (your own Azaan)';
-    final int cut = path.lastIndexOf(Platform.pathSeparator);
-    return cut >= 0 && cut < path.length - 1
-        ? path.substring(cut + 1)
-        : path;
+    return customAzanName(path);
   }
 
   /// A file that was picked once and has since gone missing — an SD card

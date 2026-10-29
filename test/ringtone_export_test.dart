@@ -84,9 +84,11 @@ void main() {
   test('the Settings row and the bridge under it agree', () {
     expect(settings, contains("'Add to phone ringtone list'"),
         reason: 'the button the reader actually taps.');
-    expect(settings, contains("'Noor Azaan - \${"),
+    expect(settings, contains("'Noor Azaan - \$"),
         reason: 'the title the entry lands under — named for the app, so '
-            'the phone’s list says whose clip it is among its own sounds.');
+            'the phone’s list says whose clip it is among its own sounds, '
+            'and carrying a name that changes with the clip when the clip '
+            'is the reader’s own file.');
     expect(settings, contains('_addToPhoneRingtone'),
         reason: 'and its handler, which answers "None (silent)" with a '
             'sentence instead of exporting nothing.');

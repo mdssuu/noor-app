@@ -125,10 +125,18 @@ const List<AzanSound> kAzanSounds = <AzanSound>[
 
 /// Looks a sound up by its stored key; unknown keys fall back to the default
 /// so a stale preference can never leave the notification channel unsounded.
+///
+/// [kCustomAzanKey] is known but is not in the catalogue, and it answers
+/// [kCustomAzanSound] rather than the default. Falling through used to turn
+/// the reader's own clip into Makkah everywhere a stored key was resolved —
+/// the alarm recited at prayer time most of all, and the clip "Add to phone
+/// ringtone" handed the phone — because a file the reader picked has no
+/// bundled resource for any lookup to find it under.
 AzanSound azanSoundByKey(String key) {
   for (final AzanSound sound in kAzanSounds) {
     if (sound.key == key) return sound;
   }
+  if (key == kCustomAzanKey) return kCustomAzanSound;
   return kAzanSounds.first;
 }
 
@@ -167,6 +175,39 @@ const List<int> kNotifyOffsets = <int>[-1, 5, 10, 15, 30];
 /// URL and no iOS bundle name: only the Android alarm path (which opens by
 /// path) and the Dart-side fallback player know it.
 const String kCustomAzanKey = 'custom';
+
+/// The same choice as an [AzanSound], so that a lookup can answer it.
+///
+/// Deliberately outside [kAzanSounds]: that list is the catalogue this app
+/// ships — each entry a bundled resource an owner may also point a URL at,
+/// and the only thing a fresh profile can be seeded with — while this is a
+/// file on one reader's phone, which no other phone has and no default can
+/// name. What it *is*, is a real answer to
+/// `azanSoundByKey(kCustomAzanKey)`, which used to be the first entry of
+/// the catalogue instead: Makkah, recited in place of the clip the reader
+/// had chosen.
+const AzanSound kCustomAzanSound = AzanSound(kCustomAzanKey, 'Your own Azaan');
+
+/// The name the reader knows their own clip by: its file's, not the whole
+/// path — `/storage/emulated/0/Music/Adhan.mp3` is `Adhan.mp3` to anyone
+/// reading a one-line row, and it is the same name twice over where a name
+/// has to carry more weight.
+///
+/// Both of those places want it: the sheet's row (so a second pick is
+/// visibly a replacement) and the title "Add to phone ringtone" exports
+/// under, because that list is keyed by name — two different files under
+/// one title would find the first row already there and *rewrite its bytes*
+/// rather than adding the second, leaving the reader with one ringtone and
+/// a sentence about it being already added.
+///
+/// The `/` is not `Platform.pathSeparator`: the path always comes back from
+/// the Android side, where it is the only separator there is, and this file
+/// is read by tests on desktops where the two disagree.
+String customAzanName(String path) {
+  if (path.isEmpty) return '';
+  final int cut = path.lastIndexOf('/');
+  return cut >= 0 && cut < path.length - 1 ? path.substring(cut + 1) : path;
+}
 
 String notifyOffsetLabel(int minutes) =>
     minutes < 0 ? 'At time' : '$minutes min before';

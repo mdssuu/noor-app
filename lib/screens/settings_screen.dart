@@ -202,8 +202,10 @@ class _SettingsScreenState extends State<SettingsScreen>
 
     // "None (silent)" has no clip to hand over — the same shape as the Test
     // button's answer one row up: say which of the two the reader picked
-    // rather than exporting nothing at all.
-    if (chosen.androidRaw == null) {
+    // rather than exporting nothing at all. The question is the *choice*,
+    // not the resource: the reader's own clip has no bundled resource
+    // either, and it is the one clip most worth handing over.
+    if (chosen.key == 'silent') {
       messenger.showSnackBar(
         const SnackBar(
           duration: Duration(seconds: 6),
@@ -215,7 +217,14 @@ class _SettingsScreenState extends State<SettingsScreen>
       return;
     }
 
-    final String title = 'Noor Azaan - ${chosen.label}';
+    // The reader's own clip is titled by its file, the same name its row
+    // wears in the sheet: this list is keyed by name, so two different
+    // files under one title would find the first row already there and
+    // rewrite *its* bytes rather than adding the second.
+    final String own = customAzanName(_settings.customAzanPath);
+    final String name =
+        chosen.key == kCustomAzanKey && own.isNotEmpty ? own : chosen.label;
+    final String title = 'Noor Azaan - $name';
     final ({bool added, String code}) outcome =
         await AzaanAlarm.addToPhoneRingtone(chosen.key, title);
     if (!mounted) return;
