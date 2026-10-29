@@ -35,13 +35,23 @@ class ManualAddScreen extends StatefulWidget {
 }
 
 class _ManualAddScreenState extends State<ManualAddScreen> {
-  static const List<String> _keys = <String>['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
+  /// Every clock a board publishes, in the order the rows are drawn.
+  ///
+  /// Juma is the sixth, and the reason this list is what the whole form is
+  /// built from: `Masjid`, Firestore and the OCR screen have always carried a
+  /// `juma` field, and this was the one writer left that could not set it — a
+  /// masjid added by hand kept an empty Friday cell no matter who edited it
+  /// afterwards. Key and label together, so the row, the time picker and the
+  /// payload all follow from the same entry.
+  static const List<String> _keys =
+      <String>['fajr', 'dhuhr', 'asr', 'maghrib', 'isha', 'juma'];
   static const Map<String, String> _labels = <String, String>{
     'fajr': 'Fajr',
     'dhuhr': 'Zuhr',
     'asr': 'Asr',
     'maghrib': 'Maghrib',
     'isha': 'Isha',
+    'juma': 'Juma',
   };
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
@@ -287,10 +297,10 @@ class _ManualAddScreenState extends State<ManualAddScreen> {
 
       final Map<String, dynamic> payload = <String, dynamic>{
         'masjidName': name,
+        // One entry per row above, Juma included, so the document always
+        // carries every field the Firestore rules ask for — and an edit never
+        // writes back a value the form itself could not show.
         for (final String key in _keys) key: (_times[key] ?? '').trim(),
-        // Manual entries have no Juma time field in this form — keep the key
-        // so Firestore rules that require all prayer fields still pass.
-        'juma': widget.existing?.juma ?? '',
         'latitude': latitude,
         'longitude': longitude,
         'address': _address.text.trim(),

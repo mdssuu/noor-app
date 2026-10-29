@@ -7,6 +7,7 @@ import 'app_look.dart';
 import 'app_settings.dart';
 import 'main.dart';
 import 'screens/home_extras.dart' show shareTodayTimes;
+import 'services/azan_player.dart';
 
 /// "Today's Prayer Times" card — computed on device with `adhan_dart`.
 ///
@@ -197,8 +198,43 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
     if (picked == null || !mounted) return;
     AppSettings.instance.setBellMode(key, picked);
 
+    _armReschedule();
+  }
+
+  /// Re-arms on a debounce, after whichever change just landed.
+  ///
+  /// Every schedule pass retires all the alarms and builds them again, so
+  /// five chips tapped in a row must cost one pass, not five — the same
+  /// reason the bell dialog and Settings both coalesce. A card already gone
+  /// has cancelled its own timer, and arming one now would leave it firing
+  /// against a tree that is no longer there.
+  void _armReschedule() {
+    if (!mounted) return;
     _rescheduleTimer?.cancel();
     _rescheduleTimer = Timer(const Duration(milliseconds: 400), _reschedule);
+  }
+
+  /// The two choices that decide what the reader hears and when: which Azaan
+  /// clip, and how long before the prayer it rings.
+  ///
+  /// Settings holds both, but the reader who has just read the times is the
+  /// one who wants to change them — so the same two answers live here too,
+  /// applied the moment they are picked. Both land exactly as Settings' own
+  /// do: a new clip rebuilds the notification channel (Android freezes a
+  /// channel's sound the instant it is created) before it is previewed, an
+  /// offset is filed for every prayer, and either re-arms through
+  /// [_armReschedule].
+  Future<void> _openAzaanSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NoorColors.cream,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (BuildContext context) => SafeArea(
+        child: _AzaanAlertSheet(onChanged: _armReschedule),
+      ),
+    );
   }
 
   /// The three answers, named the way the reader says them: **Azaan** rings
@@ -540,6 +576,20 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                         ],
                       ),
                     ),
+                    // What the reader hears, and when — the two choices that
+                    // used to live only in Settings, one tap from the card
+                    // that prints the times.
+                    IconButton(
+                      tooltip: 'Azaan sound & timing',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 34, minHeight: 34),
+                      onPressed: () => unawaited(_openAzaanSheet()),
+                      icon: const Icon(Icons.tune_outlined,
+                          size: 19, color: NoorColors.emeraldDeep),
+                    ),
+                    const SizedBox(width: 2),
                     // The WhatsApp forward the family group expects, one tap
                     // from the very card that prints the five times.
                     IconButton(
@@ -681,6 +731,296 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
             // end stays deliberately empty — the fixed-width spacer is what
             // keeps every clock on the same line down the card.
             child: e.key == 'sunrise' ? null : _bell(e.key),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the wocard's tune button opens: which Azaan clip, and how long before
+/// the prayer it rings.
+///
+/// Every row is an answer rather than a form — there is no Save to press,
+/// because Settings has no Save either, and a reader who opened this from the
+/// times card wants the *next* reminder changed, not a dialog confirmed. It
+/// listens to [AzanPlayer] on its own: a modal route does not rebuild when
+/// the card behind it does, so without that listener a row whose preview had
+/// ended would keep wearing the stop icon until somebody tapped it again.
+/// Leaving takes the preview with it — this sheet started it, and the only
+/// button that could stop it lives inside it.
+class _AzaanAlertSheet extends StatefulWidget {
+  const _AzaanAlertSheet({required this.onChanged});
+
+  /// Called after a pick that changes what will be armed; the card turns it
+  /// into one debounced reschedule.
+  final VoidCallback onChanged;
+
+  @override
+  State<_AzaanAlertSheet> createState() => _AzaanAlertSheetState();
+}
+
+class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
+  /// Why nothing sounded, in one line — present only until something does.
+  ///
+  /// Kept inside the sheet rather than as a snackbar: a snackbar lands on the
+  /// Home scaffold *behind* this route, where the reader who just tapped
+  /// cannot see it.
+  String? _note;
+
+  @override
+  void initState() {
+    super.initState();
+    AzanPlayer.instance.addListener(_onPlaybackChanged);
+  }
+
+  void _onPlaybackChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    AzanPlayer.instance.removeListener(_onPlaybackChanged);
+    unawaited(AzanPlayer.instance.stop());
+    super.dispose();
+  }
+
+  /// Files [minutes] against every prayer — this sheet answers for the app,
+  /// not for one row of it — and keeps the Jamaat source's own switch in
+  /// step. Settings' chips do that second half only while the mode is
+  /// "Only at my masjid's Jamaat time"; here the mode is not on show, so the
+  /// pair is written whichever is in force and survives a later change of it.
+  void _pickOffset(int minutes) {
+    final AppSettings settings = AppSettings.instance;
+    for (final String key in kNotifiablePrayers) {
+      settings.setNotifyOffset(key, minutes);
+      settings.setFavMode(key, minutes < 0 ? kFavModeAt : kFavModeOffset);
+    }
+    setState(() {});
+    widget.onChanged();
+  }
+
+  /// Selects a chip only when *every* prayer already answers with it.
+  ///
+  /// The five can be parted by a profile edited prayer by prayer in Settings,
+  /// and one lit chip claiming a choice nobody made would be a lie — no chip
+  /// lit says exactly that, and the first tap unites them.
+  bool _offsetOn(int minutes) => kNotifiablePrayers
+      .every((String key) => AppSettings.instance.notifyOffsetFor(key) == minutes);
+
+  /// The offered offsets, with this profile's own value folded in first
+  /// whenever it is not one of them: a config can name a number the chips
+  /// have never heard of, and a chip that is not drawn cannot show that it is
+  /// the one in force. The first prayer stands for all five — the reader's
+  /// tap writes one choice across them anyway.
+  List<int> get _offsetChoices {
+    final int current =
+        AppSettings.instance.notifyOffsetFor(kNotifiablePrayers.first);
+    return <int>[
+      if (!kNotifyOffsets.contains(current)) current,
+      ...kNotifyOffsets,
+    ];
+  }
+
+  /// Which clock the offset is measured against. Settings says it under a
+  /// mode dropdown this sheet does not carry, so the sentence has to carry
+  /// the mode instead — otherwise "15 min" is fifteen minutes before
+  /// nothing in particular.
+  String get _whenCaption {
+    switch (AppSettings.instance.azaanTiming) {
+      case kAzaanTimingAwwalOnly:
+        return 'How long before your calculated prayer time the reminder rings.';
+      case kAzaanTimingBoth:
+        return 'How long before each of the two times the reminder rings.';
+      case kAzaanTimingNone:
+        return 'No Azaan is armed in Settings, so nothing will ring — this '
+            'pick is kept for the day you switch it back on.';
+      case kAzaanTimingJamaatOnly:
+      default:
+        return 'How long before your favourite masjid’s Jamaat time the '
+            'reminder rings.';
+    }
+  }
+
+  /// Picks a clip, rebuilds the channel around it when it changed, then
+  /// rehearses it — in that order, because a preview of the *old* sound is
+  /// how a reader ends up trusting a choice that did not land.
+  Future<void> _pickSound(AzanSound sound) async {
+    final AppSettings settings = AppSettings.instance;
+    final bool changed = settings.azanSound != sound.key;
+    settings.setAzanSound(sound.key);
+    if (changed) {
+      // Android freezes a channel's sound the instant the channel is
+      // created, so a new pick only lands once the old channel has been
+      // dropped and rebuilt around it.
+      await NotificationService.applyAzanChannel();
+      widget.onChanged();
+    }
+    if (!mounted) return;
+    setState(() => _note = null);
+
+    final bool started = await AzanPlayer.instance.preview(sound.key);
+    if (!mounted) return;
+    setState(() {
+      if (!started) {
+        _note = 'Your phone is on silent or vibrate, so nothing played — that '
+            'is the Azaan staying quiet exactly as your reminders will. Turn '
+            'the ringer up to hear it.';
+      } else if (sound.key == 'silent') {
+        // The one row with no clip of its own, standing in with the built-in
+        // one: hearing Azaan from "None (silent)" without a word would read
+        // as the choice having failed.
+        _note = '“None (silent)” is what your reminders will use from now on — '
+            'this was the built-in Azaan, so you know the row answered.';
+      }
+    });
+  }
+
+  Widget _heading(String text) => Text(
+        text,
+        style: GoogleFonts.outfit(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: NoorColors.ink,
+        ),
+      );
+
+  Widget _hint(String text) => Text(
+        text,
+        style: GoogleFonts.outfit(
+          fontSize: 11.5,
+          color: NoorColors.onGlassMuted,
+          height: 1.5,
+        ),
+      );
+
+  /// One clip: which one is in force, and the play/stop icon that answers it.
+  Widget _soundRow(AzanSound sound) {
+    final bool selected = AppSettings.instance.azanSound == sound.key;
+    final bool playing = AzanPlayer.instance.playingKey == sound.key;
+
+    return InkWell(
+      onTap: () => unawaited(_pickSound(sound)),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              size: 19,
+              color: selected ? NoorColors.emeraldDeep : NoorColors.muted,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                sound.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.outfit(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: NoorColors.ink,
+                ),
+              ),
+            ),
+            Icon(
+              playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+              size: 22,
+              color: NoorColors.gold,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One of the offset choices, cut the way Settings cuts its own chips.
+  Widget _offsetChip(int minutes) {
+    final bool selected = _offsetOn(minutes);
+    return Expanded(
+      child: InkWell(
+        onTap: () => _pickOffset(minutes),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? NoorColors.emerald : NoorColors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color:
+                  selected ? NoorColors.emerald : NoorColors.gold.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Text(
+            notifyOffsetChipLabel(minutes),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.outfit(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: NoorColors.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      // Hugged to what it holds and clipped by its ceiling: the scroll view
+      // sizes to its own content, so a short sheet ends on its last line
+      // rather than on a band of empty cream, and one taller than the window
+      // still scrolls — which is what this is for on a short phone.
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: NoorColors.gold.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // --------------------------------------------------- what plays
+          _heading('What should play'),
+          const SizedBox(height: 4),
+          for (final AzanSound sound in kAzanSounds) _soundRow(sound),
+          if (_note != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4, right: 4),
+              child: _hint(_note!),
+            ),
+
+          const SizedBox(height: 14),
+
+          // ------------------------------------------------- when it rings
+          _heading('When it rings'),
+          const SizedBox(height: 4),
+          _hint(_whenCaption),
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              for (final MapEntry<int, int> choice
+                  in _offsetChoices.asMap().entries) ...<Widget>[
+                if (choice.key > 0) const SizedBox(width: 6),
+                _offsetChip(choice.value),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          _hint(
+            'Applies to every prayer — each row’s own bell still decides.',
           ),
         ],
       ),

@@ -2222,6 +2222,15 @@ class NotificationService {
   /// already in place is left alone, so an app opened ten times a day does
   /// nothing ten times.
   static Future<void> applyAzanChannel() async {
+    // Channels are an Android idea, and the platform side that answers for
+    // them is registered by the engine when the app starts. Asking for it
+    // before that — a desktop build, an iOS device, a test — does not come
+    // back empty: reading the instance *is* an Error, thrown before any of
+    // the catches below could see it. So the question is asked only where an
+    // answer exists; everywhere else there is no channel to rebuild and
+    // nothing a rebuild would have changed.
+    if (!Platform.isAndroid) return;
+
     final AndroidFlutterLocalNotificationsPlugin? android =
         _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     if (android == null) return;
@@ -6484,6 +6493,16 @@ class MasjidCard extends StatelessWidget {
                 Expanded(child: _TimeChip(prayer: prayer, time: masjid.timeFor(prayer.key))),
             ],
           ),
+          // Friday has no waqt of its own, so it does not join the five chips
+          // above — as a sixth of that row its clock would be squeezed to the
+          // edge of what a column can hold. Same chip, cut across the full
+          // width instead: the board has always stored a Juma time, and this
+          // is the first place on Home that shows it.
+          _TimeChip(
+            prayer: prayerByKey('juma'),
+            time: masjid.timeFor('juma'),
+            inline: true,
+          ),
           const SizedBox(height: 12),
           Container(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
           const SizedBox(height: 10),
@@ -6547,14 +6566,63 @@ class MasjidCard extends StatelessWidget {
 ///
 /// [time] arrives exactly as Firestore stored it (`17:45`); the chip, not the
 /// card, decides how that reads on screen — see `AppSettings.formatClockShort`.
+///
+/// Two cuts of the same chip. The stacked square is the one the five waqts
+/// wear, five abreast; [inline] is one line across the whole card, which is
+/// how Juma gets its clock without a sixth of the row to put it in. An empty
+/// Juma cell — a masjid added before the form could ask for one — reads
+/// `--:--`, the same "the board never answered" the rest of the card uses,
+/// rather than leaving a blank that looks like a rendering bug.
 class _TimeChip extends StatelessWidget {
-  const _TimeChip({required this.prayer, required this.time});
+  const _TimeChip({required this.prayer, required this.time, this.inline = false});
 
   final PrayerInfo prayer;
   final String time;
 
+  /// Laid out as one full-width line instead of a narrow stacked column.
+  final bool inline;
+
+  String get _clock => time.trim().isEmpty ? '--:--' : time;
+
   @override
   Widget build(BuildContext context) {
+    if (inline) {
+      return Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        decoration: BoxDecoration(
+          color: NoorColors.onGlassChip,
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: NoorColors.gold.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(prayer.icon, size: 14, color: NoorColors.onGlassGold),
+            const SizedBox(width: 8),
+            Text(
+              '${prayer.label} · Friday',
+              style: GoogleFonts.outfit(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: NoorColors.onGlassMuted,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              AppSettings.instance.formatClockShort(_clock),
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: GoogleFonts.outfit(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: NoorColors.onGlass,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 3),
       padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 3),
@@ -6573,7 +6641,7 @@ class _TimeChip extends StatelessWidget {
           ),
           const SizedBox(height: 1),
           Text(
-            AppSettings.instance.formatClockShort(time),
+            AppSettings.instance.formatClockShort(_clock),
             maxLines: 1,
             overflow: TextOverflow.clip,
             style: GoogleFonts.outfit(
