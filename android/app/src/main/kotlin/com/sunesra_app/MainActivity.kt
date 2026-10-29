@@ -15,6 +15,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Registers the `noor_masjid_time/azaan` channel.
@@ -81,6 +83,16 @@ class MainActivity : FlutterActivity() {
         // ringtone list, and the page that then holds "Phone ringtone".
         private const val METHOD_ADD_TO_PHONE_RINGTONE = "addToPhoneRingtone"
         private const val METHOD_OPEN_SOUND_SETTINGS = "openSoundSettings"
+
+        // The "Choose a file…" row's own door: the reader's audio, copied
+        // into the one file the alarm player reads by path.
+        private const val METHOD_PICK_AUDIO = "pickAudioFile"
+
+        /** The single slot a custom clip occupies — a second pick replaces it. */
+        private const val CUSTOM_CLIP_NAME = "azaan_custom.clip"
+
+        /** Chosen by [pickAudioFile]; answered from the callback. */
+        private const val REQUEST_AUDIO_PICK = 4403
 
         // Android 9 and below keep the public Ringtones folder behind these
         // two; Android 10+ needs neither for a MediaStore row the app
@@ -371,6 +383,12 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                // The sheet's "Choose a file…" row — the reader's own audio,
+                // copied into the one slot the alarm player reads by path.
+                METHOD_PICK_AUDIO -> {
+                    pickAudioFile(result)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (error: Exception) {
@@ -523,6 +541,9 @@ class MainActivity : FlutterActivity() {
      */
     private var pendingRingtone: Triple<String, String, MethodChannel.Result>? = null
 
+    /** The audio picker's own reply, held until `onActivityResult` lands. */
+    private var pendingAudioPick: MethodChannel.Result? = null
+
     /**
      * Copies the clip into the phone's ringtone list, waiting out the one
      * prompt older phones still need first.
@@ -568,6 +589,74 @@ class MainActivity : FlutterActivity() {
             Log.w(TAG, "cannot put $sound in the ringtone list: ${error.message}")
             result.error("export-failed", error.message ?: "the clip could not be copied", null)
         }
+    }
+
+    /**
+     * Opens the phone's own file picker for one audio clip and hands the
+     * chosen file's absolute path back to Dart, which copies it into the
+     * app-private directory the alarm player reads by path.
+     *
+     * The picker is launched with `ACTION_OPEN_DOCUMENT` so the reader can
+     * reach any source — Downloads, an SD card, a cloud drive's cached copy —
+     * and the reply is parked in [pendingAudioPick] until `onActivityResult`
+     * lands, the same shape [pendingRingtone] uses for a permission that can
+     * only be answered on the reader's own screen. A result never completed
+     * is a sheet waiting forever, so every exit — cancel, refuse, throw —
+     * finishes the channel call.
+     */
+    private fun pickAudioFile(result: MethodChannel.Result) {
+        if (pendingAudioPick != null) {
+            result.error("busy", "the file picker is already open", null)
+            return
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "audio/*"
+        }
+        try {
+            pendingAudioPick = result
+            startActivityForResult(intent, REQUEST_AUDIO_PICK)
+        } catch (error: Exception) {
+            pendingAudioPick = null
+            Log.w(TAG, "cannot open the audio picker: ${error.message}")
+            result.error("no-picker", error.message ?: "no file picker is available", null)
+        }
+    }
+
+    /** The one place an audio pick can end: a copied path, or a logged refusal. */
+    private fun deliverAudioPick(uri: Uri?, result: MethodChannel.Result) {
+        if (uri == null) {
+            result.success(null)
+            return
+        }
+        try {
+            // A content:// URI is not a path the alarm player can reopen once
+            // the grant lapses, so the bytes are copied straight into the
+            // app-private directory under a stable name the Dart side already
+            // points at. The name is fixed because the reader keeps *one*
+            // custom clip; a second pick replaces the first, which is exactly
+            // what the settings screen says it does.
+            val target = File(filesDir, CUSTOM_CLIP_NAME)
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(target).use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("no stream for $uri")
+            result.success(target.absolutePath)
+        } catch (error: Exception) {
+            Log.w(TAG, "cannot copy the chosen audio: ${error.message}")
+            result.error("copy-failed", error.message ?: "the clip could not be copied", null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_AUDIO_PICK) {
+            val pending = pendingAudioPick
+            pendingAudioPick = null
+            if (pending != null) {
+                val uri = if (resultCode == RESULT_OK) data?.data else null
+                deliverAudioPick(uri, pending)
+            }
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onRequestPermissionsResult(

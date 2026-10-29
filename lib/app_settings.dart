@@ -160,6 +160,14 @@ const List<String> kBellModes = <String>[kBellAzan, kBellSilent, kBellOff];
 /// which folds the live value into the row rather than drawing no selection.
 const List<int> kNotifyOffsets = <int>[-1, 5, 10, 15, 30];
 
+/// The key the "own file" row carries — the reader's own audio, copied into
+/// the app-private directory and pointed at by `AppSettings.customAzanPath`.
+///
+/// It is not in [kAzanSounds] because it has no bundled resource, no remote
+/// URL and no iOS bundle name: only the Android alarm path (which opens by
+/// path) and the Dart-side fallback player know it.
+const String kCustomAzanKey = 'custom';
+
 String notifyOffsetLabel(int minutes) =>
     minutes < 0 ? 'At time' : '$minutes min before';
 
@@ -520,6 +528,12 @@ class AppSettings extends ChangeNotifier {
 
   static const String _kAzan = 'azanSound';
 
+  /// Path to the audio file the user picked as their own Azaan clip, stored on
+  /// disk (copied into the app-private support directory so the Kotlin alarm
+  /// player can open it even when the app is not running). `''` means "no
+  /// custom clip — use the built-in list".
+  static const String _kCustomAzan = 'customAzanPath';
+
   /// "When will the Azaan play?" — which of the two announcements for a prayer may
   /// sound. Read back by the scheduler as `jamaat_only` when absent.
   static const String _kAzaanTiming = 'azaan_timing_pref';
@@ -575,6 +589,7 @@ class AppSettings extends ChangeNotifier {
     _kCustomCity,
     _kNotifMaster,
     _kAzan,
+    _kCustomAzan,
     _kAzaanTiming,
     _kTodayBoard,
     _kReadingLang,
@@ -630,6 +645,9 @@ class AppSettings extends ChangeNotifier {
   bool _prayerCardVisible = true;
   bool _onboarded = false;
   String _azanSound = 'makkah';
+
+  /// Path to the user's own picked Azaan file; `''` when there is none.
+  String _customAzanPath = '';
 
   /// "When will the Azaan play?" — see [kAzaanTimingJamaatOnly] and friends. The
   /// default is one recitation per prayer, at the Jamaat the user follows.
@@ -713,6 +731,9 @@ class AppSettings extends ChangeNotifier {
   /// anything would race the very answers it collects.
   bool get onboarded => _loaded && _onboarded;
   String get azanSound => _azanSound;
+
+  /// Path to the user's own Azaan file, or `''` when they have not picked one.
+  String get customAzanPath => _customAzanPath;
 
   /// Starred masjid the Today card quotes by name, or `''` for the automatic
   /// answer (whichever starred masjid is nearest).
@@ -947,6 +968,7 @@ class AppSettings extends ChangeNotifier {
       _prayerCardVisible = prefs.getBool(_key(_kPrayerCard)) ?? true;
       _onboarded = prefs.getBool(_key(_kOnboarded)) ?? false;
       _azanSound = prefs.getString(_key(_kAzan)) ?? 'makkah';
+      _customAzanPath = prefs.getString(_key(_kCustomAzan)) ?? '';
       // An unknown stored value would otherwise read as "no source at all",
       // which is how a typo could silently mute every reminder. Only the
       // choices the dropdown actually offers are accepted; a value from an
@@ -1187,6 +1209,20 @@ class AppSettings extends ChangeNotifier {
     _azanSound = key;
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kAzan), key));
+  }
+
+  /// Stores the path of the Azaan clip the user picked from their own files.
+  /// An empty [path] clears it so the built-in list answers again.
+  void setCustomAzanPath(String path) {
+    _customAzanPath = path.trim();
+    notifyListeners();
+    _put((SharedPreferences p) async {
+      if (_customAzanPath.isEmpty) {
+        await p.remove(_key(_kCustomAzan));
+      } else {
+        await p.setString(_key(_kCustomAzan), _customAzanPath);
+      }
+    });
   }
 
   /// "When will the Azaan play?" — persisted as `azaan_timing_pref`, and pushed to the

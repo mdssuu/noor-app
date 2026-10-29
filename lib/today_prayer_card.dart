@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,6 +8,7 @@ import 'app_look.dart';
 import 'app_settings.dart';
 import 'main.dart';
 import 'screens/home_extras.dart' show shareTodayTimes;
+import 'services/azaan_alarm.dart';
 import 'services/azan_player.dart';
 
 /// "Today's Prayer Times" card — computed on device with `adhan_dart`.
@@ -785,42 +787,92 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
     super.dispose();
   }
 
-  /// Files [minutes] against every prayer — this sheet answers for the app,
-  /// not for one row of it — and keeps the Jamaat source's own switch in
-  /// step. Settings' chips do that second half only while the mode is
-  /// "Only at my masjid's Jamaat time"; here the mode is not on show, so the
-  /// pair is written whichever is in force and survives a later change of it.
-  void _pickOffset(int minutes) {
+  /// Files [minutes] against [prayer] alone and keeps the Jamaat source's own
+  /// switch in step. Settings' chips do that second half only while the mode
+  /// is "Only at my masjid's Jamaat time"; here the mode is not on show, so
+  /// the pair is written whichever is in force and survives a later change
+  /// of it.
+  void _pickOffset(String prayer, int minutes) {
     final AppSettings settings = AppSettings.instance;
-    for (final String key in kNotifiablePrayers) {
-      settings.setNotifyOffset(key, minutes);
-      settings.setFavMode(key, minutes < 0 ? kFavModeAt : kFavModeOffset);
-    }
+    settings.setNotifyOffset(prayer, minutes);
+    settings.setFavMode(prayer, minutes < 0 ? kFavModeAt : kFavModeOffset);
     setState(() {});
     widget.onChanged();
   }
 
-  /// Selects a chip only when *every* prayer already answers with it.
+  /// Asks for a number no chip offers and files it against [prayer].
   ///
-  /// The five can be parted by a profile edited prayer by prayer in Settings,
-  /// and one lit chip claiming a choice nobody made would be a lie — no chip
-  /// lit says exactly that, and the first tap unites them.
-  bool _offsetOn(int minutes) => kNotifiablePrayers
-      .every((String key) => AppSettings.instance.notifyOffsetFor(key) == minutes);
-
-  /// The offered offsets, with this profile's own value folded in first
-  /// whenever it is not one of them: a config can name a number the chips
-  /// have never heard of, and a chip that is not drawn cannot show that it is
-  /// the one in force. The first prayer stands for all five — the reader's
-  /// tap writes one choice across them anyway.
-  List<int> get _offsetChoices {
-    final int current =
-        AppSettings.instance.notifyOffsetFor(kNotifiablePrayers.first);
-    return <int>[
-      if (!kNotifyOffsets.contains(current)) current,
-      ...kNotifyOffsets,
-    ];
+  /// The reader who knows exactly how long before Fajr they want the knock —
+  /// seven minutes, not one of the four the chips carry — has always been
+  /// able to store it from the owner's config but never from the phone in
+  /// their hand. This is that door.
+  Future<void> _askCustomOffset(String prayer) async {
+    final TextEditingController controller = TextEditingController();
+    final int? picked = await showDialog<int>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        backgroundColor: NoorColors.cream,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Text(
+          '${prayerByKey(prayer).label} — minutes before',
+          style: GoogleFonts.outfit(
+              fontSize: 16, fontWeight: FontWeight.w700, color: NoorColors.ink),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            hintText: 'e.g. 7',
+            filled: true,
+            fillColor: NoorColors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(13),
+              borderSide: BorderSide(
+                  color: NoorColors.gold.withValues(alpha: 0.6)),
+            ),
+          ),
+          style: GoogleFonts.outfit(fontSize: 15, color: NoorColors.ink),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancel',
+                style: GoogleFonts.outfit(
+                    fontSize: 13, fontWeight: FontWeight.w700, color: NoorColors.muted)),
+          ),
+          TextButton(
+            onPressed: () {
+              final int minutes = int.tryParse(controller.text.trim()) ?? -999;
+              // `-1` is "At time", so a real number starts at 0; past two
+              // hours is a typo rather than a reminder.
+              if (minutes < 0 || minutes > 120) return;
+              Navigator.of(context).pop(minutes);
+            },
+            child: Text('Set',
+                style: GoogleFonts.outfit(
+                    fontSize: 13, fontWeight: FontWeight.w700, color: NoorColors.emeraldDeep)),
+          ),
+        ],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _pickOffset(prayer, picked);
   }
+
+  /// Selects a chip only when *this prayer* already answers with it.
+  bool _offsetOn(String prayer, int minutes) =>
+      AppSettings.instance.notifyOffsetFor(prayer) == minutes;
+
+  /// The offered offsets for [prayer] — the four the chips carry, no more.
+  ///
+  /// Settings folds a live value the chips have never heard of into its own
+  /// row, because a chip that is not drawn cannot show that it is in force.
+  /// This sheet already has a door for exactly that case: a value outside
+  /// these four is a *custom* one, and the Custom… chip wears the number
+  /// itself. Folding it in here as well would print "7 min" twice on one row
+  /// — once as a chip the reader never picked, once as the answer they did.
+  List<int> _offsetChoices(String prayer) => kNotifyOffsets;
 
   /// Which clock the offset is measured against. Settings says it under a
   /// mode dropdown this sheet does not carry, so the sentence has to carry
@@ -846,6 +898,13 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
   /// rehearses it — in that order, because a preview of the *old* sound is
   /// how a reader ends up trusting a choice that did not land.
   Future<void> _pickSound(AzanSound sound) async {
+    // The custom row has no [AzanSound] of its own — its bytes are a file on
+    // disk and its preview opens a path, not a resource id — so it takes its
+    // own door rather than falling through a lookup that would answer null.
+    if (sound.key == kCustomAzanKey) {
+      await _pickCustomFile();
+      return;
+    }
     final AppSettings settings = AppSettings.instance;
     final bool changed = settings.azanSound != sound.key;
     settings.setAzanSound(sound.key);
@@ -876,6 +935,44 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
     });
   }
 
+  /// Opens the phone's file picker, copies the chosen clip into the one slot
+  /// the alarm player reads, points every prayer at it and rehearses it.
+  ///
+  /// The copy is what makes the pick survive: a `content://` URI's grant
+  /// lapses the moment the reader's phone sleeps, and the alarm fires with
+  /// the app not running — so the bytes are copied into the app-private
+  /// directory and the stored path is what every future ring opens. The
+  /// preview plays the *copied* file, not the picked one, because that is
+  /// exactly what tomorrow's alarm will play.
+  Future<void> _pickCustomFile() async {
+    final AppSettings settings = AppSettings.instance;
+    final String? path = await AzaanAlarm.pickAudioFile();
+    if (path == null || !mounted) return;
+
+    settings.setCustomAzanPath(path);
+    // The profile's clip is one global choice — the bells only gate *whether*
+    // a prayer recites, not what it recites — so pointing the pick at the
+    // profile is pointing every praying bell at this file.
+    settings.setAzanSound(kCustomAzanKey);
+    // Android freezes a channel's sound the instant it is created; the
+    // banner stays silent either way, so this is the same rebuild the
+    // built-in rows make rather than anything the custom clip needs.
+    await NotificationService.applyAzanChannel();
+    if (!mounted) return;
+    setState(() => _note = null);
+    widget.onChanged();
+
+    final bool started = await AzanPlayer.instance.previewFile(path);
+    if (!mounted) return;
+    setState(() {
+      if (!started) {
+        _note = 'Your phone is on silent or vibrate, so nothing played — that '
+            'is the Azaan staying quiet exactly as your reminders will. Turn '
+            'the ringer up to hear it.';
+      }
+    });
+  }
+
   Widget _heading(String text) => Text(
         text,
         style: GoogleFonts.outfit(
@@ -895,9 +992,15 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
       );
 
   /// One clip: which one is in force, and the play/stop icon that answers it.
+  ///
+  /// The custom row is the one row whose label is *not* a constant: it names
+  /// the file the reader chose, so a second pick is visibly a replacement.
   Widget _soundRow(AzanSound sound) {
     final bool selected = AppSettings.instance.azanSound == sound.key;
     final bool playing = AzanPlayer.instance.playingKey == sound.key;
+    final String label = sound.key == kCustomAzanKey
+        ? _customLabel(AppSettings.instance.customAzanPath)
+        : sound.label;
 
     return InkWell(
       onTap: () => unawaited(_pickSound(sound)),
@@ -914,7 +1017,7 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                sound.label,
+                label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
@@ -935,12 +1038,79 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
     );
   }
 
-  /// One of the offset choices, cut the way Settings cuts its own chips.
-  Widget _offsetChip(int minutes) {
-    final bool selected = _offsetOn(minutes);
+  /// The custom row's own label: the file's name, or the door that opens one.
+  ///
+  /// `basename` rather than the whole path — a reader who picked
+  /// `/storage/emulated/0/Music/Adhan.mp3` cares about `Adhan.mp3`, and the
+  /// sheet has one line to say it in.
+  String _customLabel(String path) {
+    if (path.isEmpty) return 'Choose a file… (your own Azaan)';
+    final int cut = path.lastIndexOf(Platform.pathSeparator);
+    return cut >= 0 && cut < path.length - 1
+        ? path.substring(cut + 1)
+        : path;
+  }
+
+  /// A file that was picked once and has since gone missing — an SD card
+  /// pulled, a download deleted — must not keep wearing its own name as if
+  /// it were still there.
+  bool get _customMissing {
+    final String path = AppSettings.instance.customAzanPath;
+    return path.isEmpty || !File(path).existsSync();
+  }
+
+  /// The reader's own clip, sitting last so the five built-in answers stay
+  /// where a returning reader left them.
+  Widget _customSoundRow() {
+    final bool selected =
+        AppSettings.instance.azanSound == kCustomAzanKey && !_customMissing;
+    final bool playing = AzanPlayer.instance.playingKey == kCustomAzanKey;
+
+    return InkWell(
+      onTap: () => unawaited(_pickCustomFile()),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              size: 19,
+              color: selected ? NoorColors.emeraldDeep : NoorColors.muted,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _customMissing
+                    ? 'Choose a file… (your own Azaan)'
+                    : _customLabel(AppSettings.instance.customAzanPath),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.outfit(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: NoorColors.ink,
+                ),
+              ),
+            ),
+            Icon(
+              playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+              size: 22,
+              color: NoorColors.gold,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One of the offset choices for [prayer], cut the way Settings cuts its
+  /// own chips.
+  Widget _offsetChip(String prayer, int minutes) {
+    final bool selected = _offsetOn(prayer, minutes);
     return Expanded(
       child: InkWell(
-        onTap: () => _pickOffset(minutes),
+        onTap: () => _pickOffset(prayer, minutes),
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
@@ -964,6 +1134,75 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// The last chip of every row: the door to a number no chip carries.
+  ///
+  /// Lit whenever [prayer]'s live offset is one of the four — a custom
+  /// number is a *kept* answer, and a reader returning to the row should see
+  /// which door they came through.
+  Widget _customOffsetChip(String prayer) {
+    final int current = AppSettings.instance.notifyOffsetFor(prayer);
+    final bool lit = current >= 0 && !kNotifyOffsets.contains(current);
+    return Expanded(
+      child: InkWell(
+        onTap: () => unawaited(_askCustomOffset(prayer)),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: lit ? NoorColors.gold.withValues(alpha: 0.35) : NoorColors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: lit ? NoorColors.gold : NoorColors.gold.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Text(
+            lit ? '$current min' : 'Custom…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.outfit(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: NoorColors.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One prayer's whole timing answer: its name and one row of chips.
+  Widget _offsetRow(String prayer) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            prayerByKey(prayer).label,
+            style: GoogleFonts.outfit(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: NoorColors.onGlass,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Row(
+            children: <Widget>[
+              for (final MapEntry<int, int> choice
+                  in _offsetChoices(prayer).asMap().entries) ...<Widget>[
+                if (choice.key > 0) const SizedBox(width: 5),
+                _offsetChip(prayer, choice.value),
+              ],
+              const SizedBox(width: 5),
+              _customOffsetChip(prayer),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -996,6 +1235,11 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
           _heading('What should play'),
           const SizedBox(height: 4),
           for (final AzanSound sound in kAzanSounds) _soundRow(sound),
+          // The reader's own clip last: five built-in answers stay where a
+          // returning reader left them, and the door to their own file is
+          // still one line down rather than a screen away.
+          const SizedBox(height: 2),
+          _customSoundRow(),
           if (_note != null)
             Padding(
               padding: const EdgeInsets.only(top: 6, left: 4, right: 4),
@@ -1008,19 +1252,13 @@ class _AzaanAlertSheetState extends State<_AzaanAlertSheet> {
           _heading('When it rings'),
           const SizedBox(height: 4),
           _hint(_whenCaption),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              for (final MapEntry<int, int> choice
-                  in _offsetChoices.asMap().entries) ...<Widget>[
-                if (choice.key > 0) const SizedBox(width: 6),
-                _offsetChip(choice.value),
-              ],
-            ],
-          ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
+          for (final String prayer in kNotifiablePrayers)
+            _offsetRow(prayer),
+          const SizedBox(height: 2),
           _hint(
-            'Applies to every prayer — each row’s own bell still decides.',
+            'Each prayer sets its own minutes. “Custom…” lets you type any '
+            'number. Each row’s own bell still decides whether it rings.',
           ),
         ],
       ),

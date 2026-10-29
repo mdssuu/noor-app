@@ -169,6 +169,19 @@ class AzaanAlarm {
 
   static Future<void> stop() => _call('stop');
 
+  /// Opens the phone's own file picker for one audio clip and returns the
+  /// app-private path the chosen file was copied to, or `null` when the
+  /// reader cancelled.
+  ///
+  /// This is the sheet's "Choose a file…" door. The copy happens on the
+  /// Kotlin side so the alarm player — which opens by path, with the app not
+  /// running — reads the same bytes the preview just played.
+  static Future<String?> pickAudioFile() async {
+    install();
+    final Object? value = await _call('pickAudioFile');
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
   /// Points the launcher at one of the icon variants bundled with the build.
   ///
   /// An icon cannot be downloaded: Android resolves a launcher icon from the

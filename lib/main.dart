@@ -2092,6 +2092,25 @@ class NotificationService {
   /// "the profile asked for no sound" with the same word.
   static const String _silentRaw = 'silent';
 
+  /// The `raw` string [prayer]'s alarm carries, which the Kotlin side reads
+  /// as a file name.
+  ///
+  /// A bundled clip names its `res/raw` resource (`azaan1`, `beep`, …), and
+  /// the reader's own clip names the file copied into `filesDir` when it was
+  /// picked — `azaan_custom.clip`, i.e. the sound key `custom`. That is the
+  /// whole of the custom door: the scheduler never has to open the file, it
+  /// only has to hand the player the name it already knows how to find. A
+  /// muted bell keeps falling back to [_silentRaw], exactly as before, so
+  /// Mute is still a silent alarm rather than a missing one.
+  static String _bellRaw(String prayer) => _rawFor(_bellSound(prayer));
+
+  /// The same answer for a bare [AzanSound]: the one-shot probes that speak
+  /// for the profile rather than for a prayer arm themselves from here.
+  static String _rawFor(AzanSound sound) {
+    if (sound.key == kCustomAzanKey) return kCustomAzanKey;
+    return sound.androidRaw ?? _silentRaw;
+  }
+
   /// Whether the Kotlin side's card *is* the prayer's notification — so the
   /// Dart banner must not be scheduled at all.
   ///
@@ -2511,7 +2530,6 @@ class NotificationService {
       // clip is armed — have to write the same words, or a reader who
       // silences their phone would be told something different from a reader
       // who does not.
-      final AzanSound sound = _bellSound(key);
       final String cardTitle =
           '${prayerByKey(key).label} • ${settings.format(prayerTime)}';
       // This pass is reached only when the *calculated* source is armed
@@ -2586,7 +2604,7 @@ class NotificationService {
       await AzaanAlarm.schedule(
         id: _azanId(key),
         at: fire,
-        raw: sound.androidRaw ?? _silentRaw,
+        raw: _bellRaw(key),
         title: cardTitle,
         body: cardBody,
       );
@@ -2729,7 +2747,6 @@ class NotificationService {
     // The snoozed pair is decided the same way as the original: with the
     // receiver armed, its card at +10 min *is* the snoozed alert, so no
     // second banner is queued to arrive beside it.
-    final AzanSound sound = _bellSound(key);
     if (receiverOwnsTheCard()) {
       debugPrint('Azan ▸ snoozed $key: receiver card stands in for the '
           'banner — one prayer, one notification');
@@ -2758,7 +2775,7 @@ class NotificationService {
       await AzaanAlarm.schedule(
         id: _snoozeId,
         at: at,
-        raw: sound.androidRaw ?? _silentRaw,
+        raw: _bellRaw(key),
         title: 'Snoozed • ${prayerByKey(key).label}',
         body: 'Ten minutes back, as you asked.',
         recurring: false,
@@ -2913,7 +2930,6 @@ class NotificationService {
         // same reason for it: on Android the receiver posts this prayer's
         // card at `fire` either way, so the banner would only be a second
         // voice saying the same thing.
-        final AzanSound sound = _bellSound(key);
         final String cardTitle =
             '${prayerByKey(key).label} • ${settings.format(atTime)}';
         final String cardBody = minutesBefore == 0
@@ -2958,7 +2974,7 @@ class NotificationService {
         await AzaanAlarm.schedule(
           id: base + p,
           at: fire,
-          raw: sound.androidRaw ?? _silentRaw,
+          raw: _bellRaw(key),
           title: cardTitle,
           body: cardBody,
         );
@@ -3107,7 +3123,6 @@ class NotificationService {
       await _plugin.cancel(id: _testReminderId);
       final tz.TZDateTime when =
           tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
-      final AzanSound sound = _azanSound;
       // The probe shows what a prayer shows — one card. Where the receiver
       // will speak for it, the banner is held back exactly as it is held
       // back at Fajr; a probe firing two cards would be demonstrating a
@@ -3148,7 +3163,7 @@ class NotificationService {
       await AzaanAlarm.schedule(
         id: _testReminderId,
         at: when,
-        raw: sound.androidRaw ?? _silentRaw,
+        raw: _rawFor(_azanSound),
         title: 'Closed-app test',
         body: 'This fired with Noor shut — exactly what a prayer time does.',
         // Not recurring: a diagnostic that resurrects itself every morning

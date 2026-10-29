@@ -106,6 +106,40 @@ class AzanPlayer {
     return _start(key, builtInFallback: true);
   }
 
+  /// Rehearses the reader's *own* picked file at [path] — the "Choose a
+  /// file…" row's tap.
+  ///
+  /// A file the user chose is not a bundled raw resource, so it cannot go
+  /// through the native ringer player the way [preview] does; it is opened
+  /// straight off disk by the fallback player. It is still asked to be
+  /// silent-first for the same reason every other clip is: a phone left on
+  /// vibrate must not be handed a file it was never going to let anyone
+  /// hear.
+  Future<bool> previewFile(String path) async {
+    await stop();
+    if (path.isEmpty) return false;
+
+    final String ringer = await AzaanAlarm.ringerMode();
+    if (ringer != 'normal') {
+      debugPrint('Noor ▸ custom azan declined — ringer mode is $ringer');
+      _setPlaying(null);
+      return false;
+    }
+
+    try {
+      await _player.play(DeviceFileSource(path), volume: 1.0);
+    } catch (error) {
+      debugPrint('Noor ▸ custom azan preview failed: $error');
+      _setPlaying(null);
+      return false;
+    }
+    _setPlaying(kCustomAzanKey);
+    _player.onPlayerComplete.first.then((_) {
+      if (_playingKey == kCustomAzanKey) _setPlaying(null);
+    });
+    return true;
+  }
+
   /// Replays the clip behind a reminder the reader tapped.
   ///
   /// Never with the built-in stand-in: a banner tapped on a silent profile is
@@ -116,6 +150,14 @@ class AzanPlayer {
       _start(AppSettings.instance.azanSound, builtInFallback: false);
 
   Future<bool> _start(String key, {required bool builtInFallback}) async {
+    // The reader's own clip has no [AzanSound] of its own — it is a file on
+    // disk, not a bundled resource or a URL — so it takes its own door. The
+    // path is the same one the Kotlin alarm player opened: the copy made when
+    // it was picked, which is what keeps a reminder replay honest.
+    if (key == kCustomAzanKey) {
+      return previewFile(AppSettings.instance.customAzanPath);
+    }
+
     final AzanSound? chosen = _sound(key);
     if (chosen == null) return false;
 
