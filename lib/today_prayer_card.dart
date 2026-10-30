@@ -15,7 +15,10 @@ import 'screens/home_extras.dart' show shareTodayTimes;
 /// the clock on the right with a board's Jamaat stacked over the calculated
 /// Awwal time where a masjid publishes one. Under each clock sits the
 /// prayer's *official* end — the calculated start of whatever follows, which
-/// a board's Jamaat cell never moves. The makruh (Zawal) half hour is not
+/// a board's Jamaat cell never moves. Friday changes the noon row, and only
+/// the noon row: it wears Jummah's own name and quotes the board's Juma cell
+/// as its Jamaat, while the Awwal beneath stays the calculated Dhuhr it has
+/// always been. The makruh (Zawal) half hour is not
 /// repeated here: it stands as its own big line at the top of the hero, and
 /// only while it runs. The bell at the end of a row is a three-state switch
 /// — azan, silent (banner without sound), off — and `off` is the same gate
@@ -38,6 +41,7 @@ class TodayPrayerCard extends StatefulWidget {
     required this.areaName,
     this.board,
     this.boards = const <Masjid>[],
+    this.debugNow,
   });
 
   final double latitude;
@@ -55,6 +59,14 @@ class TodayPrayerCard extends StatefulWidget {
   /// Every starred masjid, so the card can name whose times they are and let
   /// the reader pick a different board when there is more than one.
   final List<Masjid> boards;
+
+  /// Pins "now" for a test.
+  ///
+  /// The card reads the weekday off this clock to decide whether noon is
+  /// Jummah, which no test can reach without it; production passes nothing
+  /// and reads the real one.
+  @visibleForTesting
+  final DateTime? debugNow;
 
   @override
   State<TodayPrayerCard> createState() => _TodayPrayerCardState();
@@ -116,9 +128,15 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
     if (!mounted) return;
 
     final AppSettings settings = AppSettings.instance;
-    final DateTime now = DateTime.now();
+    final DateTime now = widget.debugNow ?? DateTime.now();
     final LocalPrayerTimes day =
-        settings.compute(latitude: _lat, longitude: _lng);
+        settings.compute(latitude: _lat, longitude: _lng, day: now);
+
+    // Friday's noon prayer is Jummah. It is the same prayer on the same
+    // calculated clock — the Awwal and the official end below never move —
+    // but the reader reads it by its Friday name, quotes the board's Juma
+    // cell as its Jamaat, and wears its own glyph rather than the noon sun.
+    final bool friday = now.weekday == DateTime.friday;
 
     setState(() {
       _entries = <_Entry>[
@@ -126,8 +144,14 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
             day.officialEnd('fajr')),
         _Entry('sunrise', 'Sunrise', day.times['sunrise']!,
             Icons.wb_sunny_outlined, day.officialEnd('sunrise')),
-        _Entry('dhuhr', 'Dhuhr', day.times['dhuhr']!,
-            Icons.light_mode_outlined, day.officialEnd('dhuhr')),
+        _Entry(
+            'dhuhr',
+            friday ? prayerByKey('juma').label : 'Dhuhr',
+            day.times['dhuhr']!,
+            friday
+                ? prayerByKey('juma').icon
+                : Icons.light_mode_outlined,
+            day.officialEnd('dhuhr')),
         _Entry('asr', 'Asr', day.times['asr']!, Icons.wb_twilight_outlined,
             day.officialEnd('asr')),
         _Entry('maghrib', 'Maghrib', day.times['maghrib']!,
@@ -144,12 +168,33 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   /// A prayer the board does not publish arrives as `--:--` (a typo'd
   /// `13:60` is refused just the same), so the cell falls back to the
   /// calculated time rather than printing a placeholder at the reader.
+  ///
+  /// Friday's answer for `dhuhr` is the board's **Juma** cell: the masjid's
+  /// Friday clock, not its daily noon one. A board that never filled a Juma
+  /// time therefore stays on the calculated clock — quoting its everyday
+  /// Dhuhr as the Jummah would be a guess dressed as a fact.
   String _jamaat(String key) {
     final Masjid? board = widget.board;
     if (board == null) return '';
 
-    final String stored = board.timeFor(key);
+    final bool friday =
+        (widget.debugNow ?? DateTime.now()).weekday == DateTime.friday;
+    final String cell = key == 'dhuhr' && friday ? 'juma' : key;
+    final String stored = board.timeFor(cell);
     return NotificationService.parseClockTime(stored) == null ? '' : stored;
+  }
+
+  /// The name today gives [key] — Friday's Dhuhr is Jummah.
+  ///
+  /// The row already prints it that way; a dialog opened from that row must
+  /// answer in the same words, or the reader meets two names for the one
+  /// prayer they just tapped.
+  String _labelFor(String key) {
+    final bool friday =
+        (widget.debugNow ?? DateTime.now()).weekday == DateTime.friday;
+    return key == 'dhuhr' && friday
+        ? prayerByKey('juma').label
+        : prayerByKey(key).label;
   }
 
   /// The three-state bell at the end of a prayer's row.
@@ -230,7 +275,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: Text(
-            '${prayerByKey(key).label} bell',
+            '${_labelFor(key)} bell',
             style: GoogleFonts.outfit(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -425,7 +470,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Text(
-          '${prayerByKey(key).label} — minutes before',
+          '${_labelFor(key)} — minutes before',
           style: GoogleFonts.outfit(
               fontSize: 16, fontWeight: FontWeight.w700, color: NoorColors.ink),
         ),

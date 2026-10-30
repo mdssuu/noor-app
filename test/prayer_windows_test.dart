@@ -58,6 +58,17 @@ void main() {
         ':${d.inSeconds.remainder(60).toString().padLeft(2, '0')}';
   }
 
+  /// The name and glyph the noon prayer wears on [when]'s weekday — Friday's
+  /// is Jummah, the rest of the week Dhuhr.
+  ///
+  /// These expectations follow the clock the hero itself reads rather than
+  /// pinning one weekday, so the suite stays honest on whichever day it runs.
+  String noonLabel(DateTime when) =>
+      when.weekday == DateTime.friday ? 'Juma' : 'Dhuhr';
+  IconData noonIcon(DateTime when) => when.weekday == DateTime.friday
+      ? Icons.mosque_outlined
+      : Icons.wb_sunny_outlined;
+
   group('the official end of a prayer', () {
     test('is the calculated start of whatever follows it', () {
       final DateTime fajr = DateTime(2026, 10, 12, 5, 19);
@@ -291,10 +302,11 @@ void main() {
       expect(find.text('Now time is'), findsNothing,
           reason: 'no one has a namaz to finish at sunrise');
       expect(find.text('Next prayer in'), findsOneWidget);
-      expect(find.text('Dhuhr'), findsOneWidget,
-          reason: 'the morning timer belongs to the prayer actually due');
-      expect(find.byIcon(Icons.wb_sunny_outlined), findsWidgets,
-          reason: 'wearing Dhuhr’s own glyph');
+      expect(find.text(noonLabel(during)), findsOneWidget,
+          reason: 'the morning timer belongs to the prayer actually due — '
+              'printed as Jummah on a Friday, Dhuhr the rest of the week');
+      expect(find.byIcon(noonIcon(during)), findsWidgets,
+          reason: 'wearing that prayer’s own glyph');
       expect(find.text(tick(day.times['dhuhr']!.difference(during))),
           findsOneWidget,
           reason: 'and it counts down to the calculated Dhuhr');
@@ -341,8 +353,9 @@ void main() {
 
       final DateTime end = day.times['asr']!;
       expect(find.text('Now time is'), findsOneWidget);
-      expect(find.text('Dhuhr'), findsOneWidget);
-      expect(find.byIcon(Icons.wb_sunny_outlined), findsWidgets,
+      expect(find.text(noonLabel(during)), findsOneWidget,
+          reason: 'the running prayer is Jummah on a Friday, Dhuhr otherwise');
+      expect(find.byIcon(noonIcon(during)), findsWidgets,
           reason: 'the running prayer wears its own day glyph');
       expect(find.text(tick(end.difference(during))), findsOneWidget,
           reason: 'the remaining time of the prayer whose time is on');

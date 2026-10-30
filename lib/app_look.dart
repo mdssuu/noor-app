@@ -1200,10 +1200,27 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
   ///
   /// `--:--`, blanks and anything else unparseable read as *no board time*,
   /// so a prayer this masjid does not publish simply stays calculated.
+  ///
+  /// Friday's `dhuhr` is Jummah, and the clock a masjid publishes for it is
+  /// its **Juma** cell — the daily noon time is not Friday's answer. A board
+  /// that filled no Juma time keeps the pair on the calculated clock rather
+  /// than quoting its everyday Dhuhr as the Jummah.
   static DateTime? _jamaatOn(Masjid board, String key, DateTime onDay) {
-    final int? minutes = NotificationService.parseClockTime(board.timeFor(key));
+    final String cell =
+        key == 'dhuhr' && onDay.weekday == DateTime.friday ? 'juma' : key;
+    final int? minutes = NotificationService.parseClockTime(board.timeFor(cell));
     if (minutes == null) return null;
     return DateTime(onDay.year, onDay.month, onDay.day, minutes ~/ 60, minutes % 60);
+  }
+
+  /// The name the reader is given for [key] on [onDay]'s calendar.
+  ///
+  /// Friday's noon prayer is Jummah — the hero says so wherever it names the
+  /// prayer, so the icon glyph and the times card beneath it read the one
+  /// name together.
+  static String _labelFor(String key, DateTime onDay) {
+    if (key == 'dhuhr' && onDay.weekday == DateTime.friday) return 'Juma';
+    return _labels[key]!;
   }
 
   /// The board quoted on this card, or `null` when it publishes none of the
@@ -1228,6 +1245,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
     final LocalPrayerTimes day = settings.compute(
       latitude: settings.customLatitude ?? widget.latitude,
       longitude: settings.customLongitude ?? widget.longitude,
+      day: now,
     );
 
     // The hero runs on the *official* clock: which prayer is on and which
@@ -1245,10 +1263,10 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
       final DateTime? startsAt = at[key];
       if (startsAt == null) continue;
       if (startsAt.isAfter(now)) {
-        next ??= _HeroEntry(_labels[key]!, startsAt);
+        next ??= _HeroEntry(_labelFor(key, now), startsAt);
         nextKey ??= key;
       } else {
-        prev = _HeroEntry(_labels[key]!, startsAt);
+        prev = _HeroEntry(_labelFor(key, now), startsAt);
       }
     }
     // Past Isha the count runs down to tomorrow's calculated Fajr — the
