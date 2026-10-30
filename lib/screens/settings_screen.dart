@@ -574,20 +574,6 @@ class _SettingsScreenState extends State<SettingsScreen>
         child: Row(children: children),
       );
 
-  /// The offset chips for [prayer]: the offered set, with this profile's own
-  /// offset folded in first whenever it is not one of them.
-  ///
-  /// A config document can name an offset the chips have never heard of, and
-  /// a chip that is not drawn cannot show that it is the one in force — so
-  /// the live value joins the row rather than the row going blank.
-  List<int> _offsetChoices(String prayer) {
-    final int current = _settings.notifyOffsetFor(prayer);
-    return <int>[
-      if (!kNotifyOffsets.contains(current)) current,
-      ...kNotifyOffsets,
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
     return NoorScaffold(
@@ -872,8 +858,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 _hint(
                   'Silence is the default now: nothing is scheduled until a '
-                  'reader asks for the Azaan — from the Home bell’s dialog or '
-                  'this screen.',
+                  'reader asks for the Azaan. Which prayers ring, and how '
+                  'early, is asked for on Home — this screen holds what is '
+                  'the same for every prayer.',
                 ),
                 if (_settings.notificationsEnabled) ...<Widget>[
                   Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
@@ -936,145 +923,20 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ],
                     ),
                   ),
-                  for (final String key in kNotifiablePrayers) ...<Widget>[
-                    Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                      child: Row(
-                        children: <Widget>[
-                          Icon(prayerByKey(key).icon, size: 17, color: NoorColors.onGlassGold),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(prayerByKey(key).label,
-                                style: GoogleFonts.outfit(
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: NoorColors.onGlass)),
-                          ),
-                          Switch(
-                            value: _settings.notifyOnFor(key),
-                            activeThumbColor: NoorColors.emerald,
-                            onChanged: (bool v) => _settings.setNotifyOn(key, v),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // One row per prayer, matching the "When will the Azaan
-                    // play?" mode above it - the two rows the Settings used
-                    // to show together read as two disconnected switches,
-                    // and in the default "Only at Jamaat time" mode the
-                    // Awwal row could light up while changing nothing.
-                    //
-                    //  * "Only at Jamaat time": the SAME five chips, where
-                    //    "At time" means the favourite masjid's Jamaat
-                    //    moment and "N min" means N minutes before it.
-                    //  * "Only at Awwal time": just the Awwal chips.
-                    //  * "At both times" / "Off": both rows, each with its
-                    //    own controls, so every source stays configurable.
-                    if (_settings.notifyOnFor(key) &&
-                        _settings.azaanTiming != kAzaanTimingJamaatOnly)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(39, 4, 12, 10),
-                        child: Row(
-                          children: <Widget>[
-                            // The live offset comes first when it is not one
-                            // of the offered choices, so a value the owner's
-                            // config set (or an older build wrote) still
-                            // shows itself as selected instead of leaving the
-                            // row with nothing lit.
-                            for (final MapEntry<int, int> choice
-                                in _offsetChoices(key).asMap().entries) ...<Widget>[
-                              if (choice.key > 0) const SizedBox(width: 6),
-                              _option(
-                                label: notifyOffsetChipLabel(choice.value),
-                                selected: _settings.notifyOffsetFor(key) ==
-                                    choice.value,
-                                onTap: () =>
-                                    _settings.setNotifyOffset(key, choice.value),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    // Jamaat-only: the single row. "At time" = the Jamaat
-                    // moment itself; "N min" stores the offset and moves the
-                    // prayer onto the Jamaat source. The second source's own
-                    // caption row stays for the modes that still show both.
-                    if (_settings.notifyOnFor(key) &&
-                        _settings.azaanTiming != kAzaanTimingAwwalOnly)
-                      if (_settings.azaanTiming == kAzaanTimingJamaatOnly)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(39, 4, 12, 14),
-                          child: Row(
-                            children: <Widget>[
-                              for (final MapEntry<int, int> choice
-                                  in _offsetChoices(key).asMap().entries) ...<Widget>[
-                                if (choice.key > 0) const SizedBox(width: 6),
-                                _option(
-                                  label: notifyOffsetChipLabel(choice.value),
-                                  selected: choice.value < 0
-                                      ? _settings.favModeFor(key) == kFavModeAt ||
-                                          _settings.notifyOffsetFor(key) < 0
-                                      : _settings.favModeFor(key) ==
-                                              kFavModeOffset &&
-                                          _settings.notifyOffsetFor(key) ==
-                                              choice.value,
-                                  onTap: () {
-                                    if (choice.value < 0) {
-                                      _settings.setFavMode(key, kFavModeAt);
-                                    } else {
-                                      _settings.setNotifyOffset(
-                                          key, choice.value);
-                                      _settings.setFavMode(
-                                          key, kFavModeOffset);
-                                    }
-                                  },
-                                ),
-                              ],
-                            ],
-                          ),
-                        )
-                      else
-                        // Same prayer, second source: a starred masjid's own
-                        // Jamaat column instead of the calculated time above.
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(39, 0, 12, 14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                'At my favourite masjid',
-                                style: GoogleFonts.outfit(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: NoorColors.onGlassMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: <Widget>[
-                                  _option(
-                                    label: 'At Jamaat time',
-                                    selected:
-                                        _settings.favModeFor(key) == kFavModeAt,
-                                    onTap: () =>
-                                        _settings.setFavMode(key, kFavModeAt),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  _option(
-                                    label: notifyOffsetLabel(
-                                        _settings.notifyOffsetFor(key)),
-                                    selected: _settings.favModeFor(key) ==
-                                        kFavModeOffset,
-                                    onTap: () =>
-                                        _settings.setFavMode(key, kFavModeOffset),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                  ],
+                  // The per-prayer rows that used to stand here — a switch
+                  // and two rows of chips for each of the five — answered
+                  // the very question the bell at the end of that prayer's
+                  // row on Home answers: Azaan, Mute or Band, and how many
+                  // minutes before. Two doors to one choice is the "double"
+                  // a reader named, so they are gone; what stays here is
+                  // what Home does not ask — the gate every prayer passes
+                  // and the mode that says which clock may ring at all.
+                  _hint(
+                    'Which prayers ring, and how many minutes before, is '
+                    'chosen on Home — the bell at the end of each prayer’s '
+                    'row: Azaan, Mute or Band, with the timing chips right '
+                    'there.',
+                  ),
                 ],
                 if (!_settings.notificationsEnabled)
                   Padding(

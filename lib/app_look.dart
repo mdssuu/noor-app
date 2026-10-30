@@ -1068,7 +1068,7 @@ class NextPrayerHero extends StatefulWidget {
     this.board,
     this.onOpenQibla,
     this.onOpenTasbeeh,
-    this.onOpenTracker,
+    this.onOpenCalendar,
     this.debugNow,
   });
 
@@ -1081,7 +1081,10 @@ class NextPrayerHero extends StatefulWidget {
   /// all any test needs to render it.
   final VoidCallback? onOpenQibla;
   final VoidCallback? onOpenTasbeeh;
-  final VoidCallback? onOpenTracker;
+
+  /// The third door, which opens the Hijri calendar — the tracker that
+  /// used to stand here gave up its place to it.
+  final VoidCallback? onOpenCalendar;
 
   /// Pins "now" for a test.
   ///
@@ -1480,9 +1483,10 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
           const SizedBox(height: 10),
 
           // ------------------------------- the three doors: Qibla, Tasbeeh,
-          // Tracker. The Fajr/Iftar chips used to stand here; the reader
-          // asked for the instruments instead — on Home, under the cards,
-          // where the eye already is.
+          // Calendar. The Fajr/Iftar chips used to stand here; then the
+          // reader asked for the instruments, and later for the Hijri
+          // calendar in the tracker's place — the month grid and any day's
+          // times, one tap from where the eye already is.
           Row(
             children: <Widget>[
               Expanded(
@@ -1503,9 +1507,9 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
               const SizedBox(width: 10),
               Expanded(
                 child: _tool(
-                  icon: Icons.fact_check_outlined,
-                  label: 'Tracker',
-                  onTap: widget.onOpenTracker,
+                  icon: Icons.calendar_month_outlined,
+                  label: 'Calendar',
+                  onTap: widget.onOpenCalendar,
                 ),
               ),
             ],

@@ -61,14 +61,12 @@ import 'screens/onboarding_screen.dart';
 import 'screens/qibla_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/tasbeeh_screen.dart';
-import 'screens/tracker_screen.dart';
 import 'services/azaan_alarm.dart';
 import 'services/app_config.dart';
 import 'services/azan_player.dart';
 import 'services/gemini_ocr_service.dart';
 import 'services/islamic_calendar.dart';
 import 'services/places_service.dart';
-import 'services/prayer_tracker.dart';
 import 'services/prayer_widget.dart';
 import 'services/tasbeeh.dart';
 import 'today_prayer_card.dart';
@@ -4468,11 +4466,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await AppConfig.instance.load();
     AppConfig.instance.seedNewProfile();
 
-    // The tasbeeh's beads and the prayer log are local and per profile —
-    // they share the scope the line above has just put in place, so they
-    // load here, once, before either screen that reads them can open.
+    // The tasbeeh's beads are local and per profile — they share the scope
+    // the line above has just put in place, so they load here, once, before
+    // the screen that reads them can open.
     unawaited(Tasbeeh.instance.load());
-    unawaited(PrayerTracker.instance.load());
 
     // Local cache first so favourites show instantly, then reconcile with the
     // Firestore sub-collection so they follow the user across devices.
@@ -5537,7 +5534,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     _position?.longitude ?? LocationService.fallbackAnchor.y,
               )),
               onOpenTasbeeh: () => _openTool(const TasbeehScreen()),
-              onOpenTracker: () => _openTool(const TrackerScreen()),
+              // The third door opens the Hijri calendar — the tracker that
+              // stood here gave up its place, and its screen and log went
+              // with it: a feature nobody can reach is not a feature, and
+              // git keeps it if the reader asks it back.
+              onOpenCalendar: _openHijriCalendar,
             ),
 
             // Always present — even with zero masjids in the collection.

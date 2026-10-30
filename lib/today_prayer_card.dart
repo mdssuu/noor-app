@@ -967,7 +967,11 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.outfit(
-                fontSize: 13.5,
+                // The name and the clock share the row and are the same
+                // fact twice over — which prayer, what time — so they wear
+                // one size. 13.5 read as fine print beside the hero above
+                // it; the reader's word for it was "bohot chota".
+                fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: NoorColors.ink,
               ),
@@ -986,7 +990,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                     : settings.formatClockShort(jamaat),
                 maxLines: 1,
                 style: GoogleFonts.outfit(
-                  fontSize: 13.5,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: NoorColors.ink,
                   letterSpacing: 0.2,

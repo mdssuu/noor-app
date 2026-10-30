@@ -63,12 +63,14 @@ void main() {
       ),
     );
 
-    for (final String label in <String>['Qibla', 'Tasbeeh', 'Tracker']) {
+    for (final String label in <String>['Qibla', 'Tasbeeh', 'Calendar']) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
-    // Two doors moved: calendar is out of the app entirely, and share now
-    // sits on the very card that prints the five times.
-    expect(find.text('Calendar'), findsNothing, reason: 'no calendar door');
+    // The calendar door came back where the tracker stood, and opens the
+    // Hijri month grid; share still sits on the very card that prints the
+    // five times.
+    expect(find.text('Tracker'), findsNothing,
+        reason: 'the tracker gave up its door');
     expect(find.text('Share times'), findsNothing,
         reason: 'share lives on the times card');
 
