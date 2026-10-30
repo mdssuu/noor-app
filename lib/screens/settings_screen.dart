@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -185,6 +186,99 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
       ),
     );
+  }
+
+  /// A file that was picked once and has since gone missing — an SD card
+  /// pulled, a download deleted — must not keep wearing its own name as if
+  /// it were still there.
+  bool get _customMissing {
+    final String path = _settings.customAzanPath;
+    return path.isEmpty || !File(path).existsSync();
+  }
+
+  /// The reader's own clip, sitting last so the five built-in answers stay
+  /// where a returning reader left them.
+  ///
+  /// It is the one row whose label is *not* a constant: it names the file the
+  /// reader chose, so a second pick is visibly a replacement rather than a
+  /// mystery overwrite. Its door lives here and nowhere else — the Home bell
+  /// dialog answers *when* this prayer rings, and a per-prayer door to a
+  /// global clip would promise a choice no per-prayer alarm can keep.
+  Widget _customSoundRow() {
+    final bool selected =
+        _settings.azanSound == kCustomAzanKey && !_customMissing;
+    final bool playing = AzanPlayer.instance.playingKey == kCustomAzanKey;
+
+    return InkWell(
+      onTap: () => unawaited(_pickCustomFile()),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              size: 19,
+              color: selected
+                  ? NoorColors.onGlassGold
+                  : NoorColors.onGlassMuted,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _customMissing
+                    ? 'Choose a file… (your own Azaan)'
+                    : customAzanName(_settings.customAzanPath),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.outfit(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected
+                      ? NoorColors.onGlass
+                      : NoorColors.onGlassMuted,
+                ),
+              ),
+            ),
+            Icon(
+              playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+              size: 22,
+              color: playing ? NoorColors.onGlassGold : NoorColors.gold,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the phone's file picker, copies the chosen clip into the one slot
+  /// the alarm player reads, points every prayer at it and rehearses it.
+  ///
+  /// The copy is what makes the pick survive: a `content://` URI's grant
+  /// lapses the moment the reader's phone sleeps, and the alarm fires with
+  /// the app not running — so the bytes are copied into the app-private
+  /// directory and the stored path is what every future ring opens. The
+  /// preview plays the *copied* file, not the picked one, because that is
+  /// exactly what tomorrow's alarm will play.
+  Future<void> _pickCustomFile() async {
+    final String? path = await AzaanAlarm.pickAudioFile();
+    if (path == null || !mounted) return;
+
+    _settings.setCustomAzanPath(path);
+    // The profile's clip is one global choice — the bells only gate *whether*
+    // a prayer recites, not what it recites — so pointing the pick at the
+    // profile is pointing every praying bell at this file. Writing through
+    // [_settings] also re-arms on the screen's own debounce, exactly as the
+    // built-in rows do.
+    _settings.setAzanSound(kCustomAzanKey);
+    // Android freezes a channel's sound the instant it is created; the
+    // banner stays silent either way, so this is the same rebuild the
+    // built-in rows make rather than anything the custom clip needs.
+    await NotificationService.applyAzanChannel();
+    if (!mounted) return;
+
+    final bool started = await AzanPlayer.instance.previewFile(path);
+    if (!started) _explainSilenced();
   }
 
   /// Copies the chosen Azaan into the phone's own ringtone list and says
@@ -1155,80 +1249,86 @@ class _SettingsScreenState extends State<SettingsScreen>
           GoldCard(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
             child: Column(
-              children: kAzanSounds.map((AzanSound sound) {
-                final bool selected = _settings.azanSound == sound.key;
-                final bool playing = AzanPlayer.instance.playingKey == sound.key;
-                return InkWell(
-                  onTap: () async {
-                    final bool changed = _settings.azanSound != sound.key;
-                    _settings.setAzanSound(sound.key);
-                    // Android freezes a channel's sound the instant the
-                    // channel is created, so a new pick only lands once the
-                    // old channel has been dropped and rebuilt around it.
-                    if (changed) await NotificationService.applyAzanChannel();
-                    if (!mounted) return;
-                    // "None (silent)" has nothing to rehearse — see the
-                    // sheet's row for why the built-in stand-in was the
-                    // complaint wearing this screen's clothes. Quiet whatever
-                    // an earlier row started, and say so; the only test that
-                    // owes an answer on a silent profile is "Test Azaan"
-                    // below, which names itself.
-                    if (sound.key == 'silent') {
-                      // Said first, stopped second — the same order as the
-                      // sheet's row: the sentence is the row's answer, and it
-                      // must not wait on a platform round-trip that can be
-                      // slow or (under a faked clock) never come back.
-                      _explainSilentPick();
-                      unawaited(AzanPlayer.instance.stop());
-                      return;
-                    }
-                    final bool started =
-                        await AzanPlayer.instance.preview(sound.key);
-                    // A row that selected a clip and then made no noise is
-                    // only trustworthy if it says which of the two it did.
-                    if (!started) _explainSilenced();
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-                    child: Row(
-                      children: <Widget>[
-                        Icon(
-                          selected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
-                          size: 19,
-                          color: selected ? NoorColors.onGlassGold : NoorColors.onGlassMuted,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            sound.label,
-                            style: GoogleFonts.outfit(
-                              fontSize: 13,
-                              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                              color: selected ? NoorColors.onGlass : NoorColors.onGlassMuted,
+              children: <Widget>[
+                ...kAzanSounds.map((AzanSound sound) {
+                    final bool selected = _settings.azanSound == sound.key;
+                    final bool playing = AzanPlayer.instance.playingKey == sound.key;
+                    return InkWell(
+                      onTap: () async {
+                        final bool changed = _settings.azanSound != sound.key;
+                        _settings.setAzanSound(sound.key);
+                        // Android freezes a channel's sound the instant the
+                        // channel is created, so a new pick only lands once the
+                        // old channel has been dropped and rebuilt around it.
+                        if (changed) await NotificationService.applyAzanChannel();
+                        if (!mounted) return;
+                        // "None (silent)" has nothing to rehearse — see the
+                        // sheet's row for why the built-in stand-in was the
+                        // complaint wearing this screen's clothes. Quiet
+                        // whatever an earlier row started, and say so; the
+                        // only test that owes an answer on a silent profile
+                        // is "Test Azaan" below, which names itself.
+                        if (sound.key == 'silent') {
+                          // Said first, stopped second — the same order as
+                          // the sheet's row: the sentence is the row's
+                          // answer, and it must not wait on a platform
+                          // round-trip that can be slow or (under a faked
+                          // clock) never come back.
+                          _explainSilentPick();
+                          unawaited(AzanPlayer.instance.stop());
+                          return;
+                        }
+                        final bool started =
+                            await AzanPlayer.instance.preview(sound.key);
+                        // A row that selected a clip and then made no noise
+                        // is only trustworthy if it says which of the two
+                        // it did.
+                        if (!started) _explainSilenced();
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                        child: Row(
+                          children: <Widget>[
+                            Icon(
+                              selected
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_off,
+                              size: 19,
+                              color: selected ? NoorColors.onGlassGold : NoorColors.onGlassMuted,
                             ),
-                          ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                sound.label,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 13,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                  color: selected ? NoorColors.onGlass : NoorColors.onGlassMuted,
+                                ),
+                              ),
+                            ),
+                            // Same reason as the sheet's rows: a play button
+                            // on "None (silent)" promises a sound the row is
+                            // built not to make, so the mute sign carries the
+                            // row instead.
+                            Icon(
+                              sound.key == 'silent'
+                                  ? Icons.volume_off_outlined
+                                  : playing
+                                      ? Icons.stop_circle_outlined
+                                      : Icons.play_circle_outline,
+                              size: 22,
+                              color: playing ? NoorColors.onGlassGold : NoorColors.gold,
+                            ),
+                          ],
                         ),
-                        // Same reason as the sheet's rows: a play button on
-                        // "None (silent)" promises a sound the row is built
-                        // not to make, so the mute sign carries the row
-                        // instead.
-                        Icon(
-                          sound.key == 'silent'
-                              ? Icons.volume_off_outlined
-                              : playing
-                                  ? Icons.stop_circle_outlined
-                                  : Icons.play_circle_outline,
-                          size: 22,
-                          color: playing ? NoorColors.onGlassGold : NoorColors.gold,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
+                      ),
+                    );
+                }),
+                const Divider(height: 1, color: NoorColors.gold),
+                _customSoundRow(),
+              ],
             ),
           ),
           Padding(
@@ -1291,7 +1391,11 @@ class _SettingsScreenState extends State<SettingsScreen>
               'silent vibration, and “Test Azaan” then plays the built-in one '
               'so the path can still be checked. “Add to phone ringtone list” '
               'hands the chosen clip to the phone’s own ringtone list as well, '
-              'where Sound settings can pick it up as the phone’s ringtone.',
+              'where Sound settings can pick it up as the phone’s ringtone. '
+              '“Choose a file…” is the last row of the list: point it at any '
+              'audio file on your phone and it becomes the Azaan every prayer '
+              'recites, copied into the app so it keeps ringing after a '
+              'reboot or a pulled SD card.',
               style: GoogleFonts.outfit(
                 fontSize: 11,
                 color: NoorColors.muted,

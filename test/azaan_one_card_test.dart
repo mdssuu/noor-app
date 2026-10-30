@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noor_masjid_time/app_settings.dart';
 import 'package:noor_masjid_time/main.dart' as app;
@@ -21,7 +23,11 @@ import 'package:noor_masjid_time/main.dart' as app;
 /// exact-alarm grant — the reader's words for which were "Mute switches the
 /// whole thing off", on the same phone where an Azaan bell still arrived.
 ///
-/// These tests pin both halves of that boundary.
+/// Posting *before* the recitation is the other half of the same promise: a
+/// card whose arrival waits on a foreground-service grant is not a card, and
+/// that is exactly how "the Azaan sounds but no notification comes" got in.
+///
+/// These tests pin all three halves of that boundary.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -66,6 +72,65 @@ void main() {
         app.NotificationService.receiverOwnsTheCard(android: false),
         isFalse,
       );
+    });
+  });
+
+  group('the card is posted before the recitation is asked for', () {
+    const String kotlin =
+        'android/app/src/main/kotlin/com/sunesra_app/AzaanAlarmReceiver.kt';
+
+    test('the receiver posts, then starts the service', () {
+      final String source = File(kotlin).readAsStringSync();
+
+      // The reported bug was an Azaan with no card and no STOP AZAN: the
+      // receiver left the card to the service's `startForeground`, and that
+      // call can throw — a revoked grant, an OEM's own rule — in which case
+      // the service logs it and plays on. Recitation, nothing in the shade.
+      //
+      // The order is therefore the whole fix, and it is the one thing a
+      // refactor must not swap: the card goes up while nothing can still
+      // refuse it, and the service posts the very same card under the very
+      // same id so the reader never sees two.
+      final int posted = source.indexOf('PrayerCard.show(context, id, title, body, playing = true)');
+      expect(posted, greaterThan(0),
+          reason: 'the audible branch posts its own card, whatever the '
+              'service goes on to do');
+      final int started = source.indexOf('context.startForegroundService(service)');
+      expect(started, greaterThan(0), reason: 'and the service is started at all');
+      expect(posted, lessThan(started),
+          reason: 'posted *before* — a card that waits on a foreground grant '
+              'is not a card, it is a hope');
+    });
+
+    test('the silent branch ends in a card too, and nothing else', () {
+      final String source = File(kotlin).readAsStringSync();
+      expect(source, contains('PrayerCard.show(context, id, title, body, playing = false)'),
+          reason: 'Mute is the same card with the recitation taken away — '
+              'the reader who said "Mute" was reading a missing card as the '
+              'whole feature switching off');
+      expect(source, isNot(contains('Snooze')),
+          reason: 'the ten-minute snooze is gone end to end: a second button '
+              'on a card that has one job was the reader\'s own complaint');
+    });
+
+    test('no snooze survives anywhere it could still be armed from', () {
+      final String card =
+          File('android/app/src/main/kotlin/com/sunesra_app/PrayerCard.kt')
+              .readAsStringSync()
+              .toLowerCase();
+      expect(card, isNot(contains('snooze')),
+          reason: 'the action id lived here, beside the notification id');
+      expect(card, isNot(contains('android.net.uri')),
+          reason: 'and so did the intent the snooze action carried');
+
+      final String main = File('lib/main.dart').readAsStringSync();
+      expect(main.toLowerCase(), isNot(contains('snooze')),
+          reason: 'the banner\'s own action button, the one-shot id and the '
+              'snoozed schedule are all gone — hiding the button would have '
+              'left three schedules behind it');
+      expect(main, isNot(contains('AndroidNotificationAction')),
+          reason: 'the azan channel therefore carries no action row at all, '
+              'so the card a reader sees is the card that was posted');
     });
   });
 }

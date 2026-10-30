@@ -5,11 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import java.util.concurrent.TimeUnit
 
 /**
- * Fired by the exact alarm that [AzaanAlarms] arms at every prayer time, and
- * by the snooze action on the prayer's own card.
+ * Fired by the exact alarm that [AzaanAlarms] arms at every prayer time.
  *
  * It is the **only** audible path the app has, and — since [PrayerCard] took
  * over the shade — the only card a prayer with a bell on it has too. The
@@ -19,13 +17,16 @@ import java.util.concurrent.TimeUnit
  * tears the playback down, and the card offers `STOP AZAN` for when nothing
  * is on screen.
  *
- * Every branch that ends without a recitation still ends with a card. That is
- * the whole point of moving the posting here: the Dart side holds its banner
- * back whenever this receiver is armed — clip or no clip — on the
- * understanding that this receiver speaks for the prayer, and a receiver
- * that answered "the phone is on vibrate" by returning quietly left the
- * reader with nothing at all, which is
- * how a reminder could be *set*, *armed* and *silent* at once.
+ * Every branch ends with a card — including the branches that *do* recite.
+ * That is the fix behind "the Azaan sounds but no notification comes": the
+ * card used to be posted only by the service's foreground notification, and
+ * a `startForeground` that throws is caught, logged and played past, so the
+ * recitation ran with nothing in the shade to show for it and no button to
+ * stop it. Posting here as well costs nothing — same id, same object, one
+ * card — and makes the card's arrival independent of a grant the reader
+ * cannot see. The Dart side holds its banner back whenever this receiver is
+ * armed — clip or no clip — on the understanding that this receiver speaks
+ * for the prayer.
  *
  * Silence stays silence, and it is asked here. The recitation rides the
  * reader's own ringer now — a stream a silenced phone mutes anyway — but
@@ -42,7 +43,6 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_PLAY -> play(context, intent)
-            ACTION_SNOOZE -> snooze(context, intent)
             else -> Unit
         }
     }
@@ -80,7 +80,7 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         // while an Azaan bell on the same phone still arrived.
         if (sound == "silent") {
             Log.i(TAG, "azaan $id fired on a muted bell — card only")
-            PrayerCard.show(context, id, title, body, sound, playing = false)
+            PrayerCard.show(context, id, title, body, playing = false)
             return
         }
 
@@ -91,7 +91,7 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         // the whole of what "notify without ringing" means.
         if (!AzaanAudio.ringerAllowsRecitation(context)) {
             Log.i(TAG, "azaan $id declined — the phone is on silent or vibrate, so it stays silent")
-            PrayerCard.show(context, id, title, body, sound, playing = false)
+            PrayerCard.show(context, id, title, body, playing = false)
             return
         }
 
@@ -102,6 +102,19 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         }
 
         Log.i(TAG, "azaan $id fired for $sound")
+
+        // The card is posted *here* — not left to the service's foreground
+        // notification, which was the whole of "the Azaan sounds but no
+        // notification comes, and with the notification no STOP AZAN". The
+        // service posts the very same card under the very same id, so in the
+        // normal case this one is replaced by an identical object and the
+        // reader sees one card, never two. But `startForeground` can throw
+        // — a grant revoked, an OEM's own rule — and the service catches
+        // that, logs it, and plays on; the recitation then ran with nothing
+        // in the shade to show for it and no button to stop it. A card whose
+        // arrival waits on a foreground grant the reader cannot see is not a
+        // card, it is a hope.
+        PrayerCard.show(context, id, title, body, playing = true)
 
         val service = Intent(context, AzaanPlaybackService::class.java)
             .setAction(AzaanPlaybackService.ACTION_PLAY)
@@ -119,80 +132,21 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         } catch (error: Exception) {
             // A few OEM builds refuse a background foreground-service start
             // even from an alarm. Play inline rather than lose the Azaan —
-            // and post the card by hand, because with no service there is no
-            // foreground notification either.
+            // the card is already up, so only the clip is left to do by
+            // hand, and its end puts the card back to its resting state.
             //
             // No recitation screen is raised here either: the rocker is the
             // mute the user reaches for, it needs no window of ours, and on
             // this device the system refuses to launch one outright.
             Log.w(TAG, "foreground start refused, playing inline: ${error.message}")
-            PrayerCard.show(context, id, title, body, sound, playing = true)
             AzaanAudio.play(context, sound) {
-                PrayerCard.show(context, id, title, body, sound, playing = false)
+                PrayerCard.show(context, id, title, body, playing = false)
             }
         }
     }
 
-    /**
-     * The card's own "Snooze 10 min" — the prayer put back ten minutes,
-     * answered without opening the app.
-     *
-     * Both halves move together exactly as they arrived: the card is
-     * replaced by a snoozed one, and the recitation is re-armed for ten
-     * minutes hence under [PrayerCard.SNOOZE_ID]. That id is deliberately
-     * outside the daily block, so re-snoozing *replaces* the pending copy
-     * rather than queueing a second, and it can never take tomorrow's place.
-     *
-     * The original alarm is left alone — it has already rearmed itself for
-     * tomorrow, and cancelling it here would cost the reader the next day's
-     * prayer to buy ten minutes on this one.
-     */
-    private fun snooze(context: Context, intent: Intent) {
-        val id = intent.getIntExtra(EXTRA_ID, -1)
-        val sound = intent.getStringExtra(EXTRA_SOUND)?.trim()?.takeIf { it.isNotEmpty() }
-            ?: DEFAULT_SOUND
-        val title = intent.getStringExtra(EXTRA_TITLE)
-        val body = intent.getStringExtra(EXTRA_BODY)
-
-        // The card being snoozed has said its piece. Dropping it here is
-        // what keeps the promise the shade makes: one prayer, one card,
-        // never two — the snoozed copy takes its place below.
-        if (id >= 0) PrayerCard.dismiss(context, id)
-
-        val at = System.currentTimeMillis() +
-            TimeUnit.MINUTES.toMillis(PrayerCard.SNOOZE_MINUTES.toLong())
-        val snoozedTitle = "Snoozed • " + (title?.substringBefore('•')?.trim() ?: "Prayer")
-
-        try {
-            AzaanAlarms.schedule(
-                context = context,
-                id = PrayerCard.SNOOZE_ID,
-                atMs = at,
-                sound = sound,
-                title = snoozedTitle,
-                body = SNOOZE_BODY,
-                recurring = false,
-            )
-        } catch (error: Exception) {
-            Log.w(TAG, "snooze refused: ${error.message}")
-            // No alarm, no point in a card promising one.
-            return
-        }
-
-        PrayerCard.show(
-            context,
-            PrayerCard.SNOOZE_ID,
-            snoozedTitle,
-            SNOOZE_BODY,
-            sound,
-            playing = false,
-        )
-        Log.i(TAG, "azaan $id snoozed to the next ${PrayerCard.SNOOZE_MINUTES} minutes")
-    }
-
     companion object {
         const val ACTION_PLAY = "com.sunesra_app.action.PLAY_AZAAN"
-        const val ACTION_SNOOZE = "com.sunesra_app.action.SNOOZE_AZAAN"
         const val EXTRA_ID = "id"
         const val EXTRA_SOUND = "sound"
         const val EXTRA_TITLE = "title"
@@ -212,9 +166,6 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
 
         /** `AzanSound('makkah', …)` — what the app plays when it is not told. */
         private const val DEFAULT_SOUND = "azaan1"
-
-        /** Matches `NotificationService.snoozeAzan`'s own words. */
-        private const val SNOOZE_BODY = "Ten minutes back, as you asked."
 
         private const val TAG = "Noor/AzanReceiver"
     }

@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Build
 import android.util.Log
 
@@ -29,8 +28,10 @@ import android.util.Log
  *  * **playing** — the recitation's own card, with `STOP AZAN` as its first
  *    action, the button a locked phone can reach without any window of ours;
  *  * **resting** — the reminder that stays after the clip ends, or stands in
- *    its place when the phone is silenced, with `Snooze 10 min` where the
- *    Dart-side banner used to put it.
+ *    its place when the phone is silenced. It carries no action of its own:
+ *    a card that only ever repeats what the bell already decided has
+ *    nothing left to press, and the second button it used to carry was the
+ *    reader's own complaint.
  *
  * Either way it is the *same* id as the `flutter_local_notifications` banner
  * for that prayer, which is what makes the two interchangeable: whichever
@@ -59,20 +60,6 @@ object PrayerCard {
     private const val CHANNEL_DESCRIPTION =
         "A reminder at each of the five daily prayer times"
 
-    /**
-     * The id a snoozed copy takes, and the same number the Dart side hands
-     * out (`NotificationService._snoozeId`).
-     *
-     * It sits above the favourite block's ceiling so a re-arm of the
-     * favourites can never sweep it, outside 0..4 so a daily reminder cannot
-     * take its place, and one above the Settings probe's 1000000000 so the
-     * probe still owns its own slot.
-     */
-    const val SNOOZE_ID = 1000000001
-
-    /** How far a snooze pushes the prayer — the Dart side's own ten minutes. */
-    const val SNOOZE_MINUTES = 10
-
     private const val ACCENT = 0xFF0A4D3C.toInt()
 
     /**
@@ -87,26 +74,14 @@ object PrayerCard {
         id: Int,
         title: String?,
         body: String?,
-        sound: String?,
         playing: Boolean,
     ) {
         try {
             val manager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.notify(id, build(context, id, title, body, sound, playing))
+            manager.notify(id, build(context, id, title, body, playing))
         } catch (error: Exception) {
             Log.w(TAG, "could not post the prayer card: ${error.message}")
-        }
-    }
-
-    /** Drops one prayer's card — the step a snooze takes before replacing it. */
-    fun dismiss(context: Context, id: Int) {
-        try {
-            val manager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.cancel(id)
-        } catch (error: Exception) {
-            Log.w(TAG, "could not drop the prayer card: ${error.message}")
         }
     }
 
@@ -120,7 +95,6 @@ object PrayerCard {
         id: Int,
         title: String?,
         body: String?,
-        sound: String?,
         playing: Boolean,
     ): Notification {
         ensureChannel(context)
@@ -170,8 +144,6 @@ object PrayerCard {
                     // that moves nothing would have nothing to catch it.
                     setFullScreenIntent(screenIntent(context, id, title), true)
                     addAction(stopAction(context))
-                } else {
-                    addAction(snoozeAction(context, id, sound, title, body))
                 }
             }
             .build()
@@ -217,30 +189,6 @@ object PrayerCard {
             flags = flags or PendingIntent.FLAG_IMMUTABLE
         }
         return PendingIntent.getActivity(context, id, AzaanActivity.launch(context, title), flags)
-    }
-
-    private fun snoozeAction(
-        context: Context,
-        id: Int,
-        sound: String?,
-        title: String?,
-        body: String?,
-    ): Notification.Action {
-        val snooze = Intent(context, AzaanAlarmReceiver::class.java)
-            .setAction(AzaanAlarmReceiver.ACTION_SNOOZE)
-            // Same reason as above: without the data each prayer's snooze
-            // would resolve to whichever was built first.
-            .setData(Uri.parse("noor://snooze/$id"))
-            .putExtra(AzaanAlarmReceiver.EXTRA_ID, id)
-            .putExtra(AzaanAlarmReceiver.EXTRA_SOUND, sound)
-            .putExtra(AzaanAlarmReceiver.EXTRA_TITLE, title)
-            .putExtra(AzaanAlarmReceiver.EXTRA_BODY, body)
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags = flags or PendingIntent.FLAG_IMMUTABLE
-        }
-        val pending = PendingIntent.getBroadcast(context, id, snooze, flags)
-        return action(context, android.R.drawable.ic_menu_recent_history, "Snooze 10 min", pending)
     }
 
     private fun action(

@@ -38,7 +38,6 @@ class AzaanPlaybackService : Service() {
     private var cardId: Int = NOTIFICATION_ID
     private var cardTitle: String? = null
     private var cardBody: String? = null
-    private var cardSound: String? = null
 
     /** True once this instance has actually entered the foreground. */
     private var foregrounded = false
@@ -71,7 +70,6 @@ class AzaanPlaybackService : Service() {
         // request is worth sending to it.
         up = true
 
-        cardSound = sound
         cardTitle = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "Azaan"
         cardBody = intent?.getStringExtra(EXTRA_BODY)
         (intent?.getIntExtra(EXTRA_ID, -1) ?: -1).let { id -> if (id >= 0) cardId = id }
@@ -87,7 +85,7 @@ class AzaanPlaybackService : Service() {
         // armed, so there is only ever this one.
         try {
             val notification =
-                PrayerCard.build(this, cardId, cardTitle, cardBody, sound, playing = true)
+                PrayerCard.build(this, cardId, cardTitle, cardBody, playing = true)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     cardId,
@@ -149,8 +147,8 @@ class AzaanPlaybackService : Service() {
      * outlive the clip that stood in for it — the reader asked to be told at
      * Maghrib, and a recitation that ended must not take the telling with it.
      * What changes is the one thing that was temporary about it: the
-     * `STOP AZAN` action goes with the playback, and the `Snooze 10 min`
-     * button the resting card carries takes its place.
+     * `STOP AZAN` action goes with the playback, and the resting card carries
+     * no action at all.
      *
      * Nothing is posted at all when this instance never entered the
      * foreground: a stop that arrived before a clip existed would otherwise
@@ -168,7 +166,6 @@ class AzaanPlaybackService : Service() {
                     cardId,
                     cardTitle,
                     cardBody,
-                    cardSound,
                     playing = false,
                 )
             }

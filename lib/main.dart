@@ -2117,8 +2117,7 @@ class NotificationService {
   /// It is on Android, for **every** armed bell, clip or no clip.
   /// [PrayerCard] owns that card end to end: it posts when the alarm fires,
   /// whether or not the recitation is allowed to sound, and it posts the same
-  /// card again when the clip ends, with `STOP AZAN` in place of
-  /// `Snooze 10 min`. One owner, one id, one card.
+  /// card again when the clip ends. One owner, one id, one card.
   ///
   /// A bell on `silent` used to be the exception — no `androidRaw`, so no
   /// alarm, so the Dart banner was left to speak alone. That made Mute the
@@ -2204,13 +2203,6 @@ class NotificationService {
         color: const Color(0xFF0A4D3C),
         playSound: false,
         enableVibration: true,
-        // "Not now" instead of "never": ten minutes back, from the banner
-        // itself, without opening the app. One shot with a one-shot id, so
-        // it can never take the place of tomorrow's copy of this prayer's
-        // daily reminder.
-        actions: const <AndroidNotificationAction>[
-          AndroidNotificationAction('snooze', 'Snooze 10 min'),
-        ],
       ),
       // iOS only honours a sound that sits in the app bundle, hence the file
       // names shipped under ios/Runner. `presentSound: false` is the only way
@@ -2353,12 +2345,6 @@ class NotificationService {
       ),
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         final String? payload = response.payload;
-        if (response.actionId == 'snooze') {
-          if (payload != null && payload.startsWith('azan:')) {
-            unawaited(snoozeAzan(payload.substring('azan:'.length)));
-          }
-          return;
-        }
         if (payload != null && payload.startsWith('azan:')) {
           // Foreground tap: let the chosen clip actually play. Background
           // playback needs a background isolate, which audioplayers cannot
@@ -2722,67 +2708,6 @@ class NotificationService {
     try {
       await _plugin.cancel(id: makruhId);
     } catch (_) {}
-  }
-
-  /// One-shot id for a snoozed reminder — outside the 0..4 daily block
-  /// (those ids return tomorrow) and at or above [_favIdCeiling], which is
-  /// what every favourite-masjid re-arm sweeps clean. 1000000000 itself is
-  /// the Settings test probe, so this sits one above it, and nowhere near
-  /// the epoch-second ids [show] hands out.
-  static const int _snoozeId = 1000000001;
-
-  /// Puts one prayer's reminder back ten minutes, from the banner's own
-  /// action button — no app open, no settings trip, no "I'll remember".
-  ///
-  /// Both halves of the reminder come back: the silent banner through the
-  /// plugin, and the recitation through the ringer-stream player, so a phone
-  /// on vibrate still sounds (that is the whole point of an azan over a
-  /// notification). The banner can be snoozed again — its payload carries
-  /// the same prayer key, and ten minutes is the plugin's *new* one-shot,
-  /// replacing the pending one rather than queueing a second.
-  static Future<void> snoozeAzan(String key) async {
-    if (!kNotifiablePrayers.contains(key)) return;
-    final DateTime at = DateTime.now().add(const Duration(minutes: 10));
-
-    // The snoozed pair is decided the same way as the original: with the
-    // receiver armed, its card at +10 min *is* the snoozed alert, so no
-    // second banner is queued to arrive beside it.
-    if (receiverOwnsTheCard()) {
-      debugPrint('Azan ▸ snoozed $key: receiver card stands in for the '
-          'banner — one prayer, one notification');
-    } else {
-      try {
-        await _initTimeZone();
-        await _plugin.zonedSchedule(
-          id: _snoozeId,
-          scheduledDate: tz.TZDateTime.from(at, tz.local),
-          title: 'Snoozed • ${prayerByKey(key).label}',
-          body: 'Ten minutes back, as you asked.',
-          notificationDetails: _azanDetailsFor(key),
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          // Tapping the snoozed copy does what the original did: play the clip.
-          payload: 'azan:$key',
-        );
-      } catch (error) {
-        debugPrint('Noor ▸ snooze banner failed: $error');
-      }
-    }
-
-    // The same per-prayer answer the original alarm used: a bell on
-    // `silent` snoozes into silence too, never into a recitation it was
-    // switched away from.
-    try {
-      await AzaanAlarm.schedule(
-        id: _snoozeId,
-        at: at,
-        raw: _bellRaw(key),
-        title: 'Snoozed • ${prayerByKey(key).label}',
-        body: 'Ten minutes back, as you asked.',
-        recurring: false,
-      );
-    } catch (error) {
-      debugPrint('Noor ▸ snooze recitation failed: $error');
-    }
   }
 
   /// Upper bound separating the favourite-masjid id block from the

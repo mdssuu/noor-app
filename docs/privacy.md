@@ -69,7 +69,7 @@ use Google at all.
 
 ## 6. Notifications and reminders
 
-Azan reminders, the favourite-masjid alerts, the snoozes and every setting behind them
+Azan reminders, the favourite-masjid alerts and every setting behind them
 live in **local storage on your phone** (SharedPreferences + the Android alarm ledger).
 They are not synced anywhere, and they are removed when you uninstall the app.
 

@@ -106,6 +106,16 @@ void main() {
     }
   }
 
+  /// The bell dialog answers *in place* — a tap files the choice and leaves
+  /// the dialog open, so the reader can still read what the tick moved to
+  /// and reach the timing chips beneath it. A glyph count therefore has to
+  /// shut it first, or the dialog's own copy of the icon is counted beside
+  /// the card's.
+  Future<void> closeBellDialog(WidgetTester tester) async {
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+  }
+
   group('Today card quoting a starred masjid', () {
     testWidgets('the board time takes the big line, the Awwal sits small beneath',
         (WidgetTester tester) async {
@@ -316,9 +326,12 @@ void main() {
 
       expect(find.text('Mute'), findsOneWidget);
 
-      // Mute — the recitation goes, the banner stays.
+      // Mute — the recitation goes, the banner stays. The dialog keeps the
+      // tick on Mute and stays open; only leaving puts the card's own glyph
+      // back in sole charge of the count.
       await tester.tap(find.text('Mute'));
       await tester.pumpAndSettle();
+      await closeBellDialog(tester);
 
       expect(settings.bellModeFor('fajr'), kBellSilent);
       expect(settings.notifyOnFor('fajr'), isTrue,
@@ -332,6 +345,7 @@ void main() {
 
       await tester.tap(find.text('Band'));
       await tester.pumpAndSettle();
+      await closeBellDialog(tester);
 
       expect(settings.bellModeFor('fajr'), kBellOff);
       expect(settings.notifyOnFor('fajr'), isFalse);
@@ -344,6 +358,7 @@ void main() {
 
       await tester.tap(find.text('Azaan'));
       await tester.pumpAndSettle();
+      await closeBellDialog(tester);
 
       expect(settings.bellModeFor('fajr'), kBellAzan);
       expect(settings.notifyOnFor('fajr'), isTrue);
@@ -373,6 +388,7 @@ void main() {
       // Asking — the same dialog, now choosing Azaan back on.
       await tester.tap(find.text('Azaan'));
       await tester.pumpAndSettle();
+      await closeBellDialog(tester);
 
       // Off walks into azan — both halves back on, on Home and in Settings.
       expect(settings.bellModeFor('asr'), kBellAzan);
