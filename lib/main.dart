@@ -4031,6 +4031,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Flip the per-masjid alert switch off.
       AppSettings.instance.setFavAlert(id, false);
       await NotificationService.scheduleFavouriteAlerts();
+      if (!mounted) return;
 
       // Tell the reader about it.
       ScaffoldMessenger.of(context).showSnackBar(
@@ -6481,6 +6482,7 @@ class MasjidCard extends StatelessWidget {
     required this.isFavourite,
     required this.onFavourite,
     this.favouritesLoaded = true,
+    this.onSelect,
   });
 
   final Masjid masjid;
@@ -6510,7 +6512,7 @@ class MasjidCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GoldCard(
       onTap: () {
-        if (onSelect != null) onSelect(masjid);
+        onSelect?.call(masjid);
         _openDetail(context);
       },
       child: Column (

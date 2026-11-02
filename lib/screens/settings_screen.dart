@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -68,7 +67,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     // Registered as a listener rather than assigned: two screens listening
     // used to overwrite each other, and whichever opened second froze.
     AzanPlayer.instance.addListener(_onPlaybackChanged);
-    _loadFavouriteMasjids();
     // The lock-screen row reads the phone's own toggles: once here, and
     // again on every resume — the settings page it opens lives outside the
     // app, and coming back is the first moment a flip there can be seen.
@@ -93,37 +91,6 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   void _onPlaybackChanged() {
     if (mounted) setState(() {});
-  }
-
-  Future<void> _loadFavouriteMasjids() async {
-    // The loading flag comes down on *every* path out of here. An offline
-    // `.get()` does not fail — it waits, and the screen sat on its spinner
-    // forever; a throw out of the cache read did the same thing from the
-    // other end.
-    final List<Masjid> loaded = <Masjid>[];
-    try {
-      final List<String> ids = await FavouriteStore.cached();
-      for (final String id in ids) {
-        try {
-          final DocumentSnapshot<Map<String, dynamic>> snap = await FirebaseFirestore
-              .instance
-              .collection('masjids')
-              .doc(id)
-              .get()
-              .timeout(const Duration(seconds: 20));
-          if (snap.exists) loaded.add(Masjid.fromDoc(snap));
-        } catch (error) {
-          debugPrint('Noor ▸ settings favourite lookup failed: $error');
-        }
-      }
-    } catch (error) {
-      debugPrint('Noor ▸ settings favourites could not be listed: $error');
-    }
-    if (!mounted) return;
-    setState(() {
-      _favMasjids = loaded;
-      _favLoaded = true;
-    });
   }
 
   /// True while the selected Azaan is audibly playing, so the Test button can
