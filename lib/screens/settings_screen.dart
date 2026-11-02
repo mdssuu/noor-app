@@ -48,9 +48,6 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   /// The starred masjids, so their alert switches can be edited from here as
   /// well as from each masjid's own page.
-  List<Masjid> _favMasjids = <Masjid>[];
-  bool _favLoaded = false;
-
   /// The lock-screen card's two upstream switches, `null` until the first
   /// read — the row it feeds says "checking" rather than guessing.
   ({bool notificationsEnabled, bool onLockScreen})? _lockScreenStatus;
@@ -127,19 +124,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       _favMasjids = loaded;
       _favLoaded = true;
     });
-  }
-
-  /// Which prayers a masjid can currently alert for, for the line under each
-  /// switch — "Alerts on" on its own says nothing about what will actually
-  /// happen at prayer time.
-  String _prayerSummary(Masjid masjid) {
-    final List<String> armed = <String>[
-      for (final String key in kNotifiablePrayers)
-        if (_settings.notifyOnFor(key) &&
-            NotificationService.parseClockTime(masjid.timeFor(key)) != null)
-          prayerByKey(key).label,
-    ];
-    return armed.isEmpty ? 'no prayer switched on yet' : armed.join(', ');
   }
 
   /// True while the selected Azaan is audibly playing, so the Test button can
@@ -976,68 +960,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                         GoogleFonts.outfit(fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
                   ),
                 ),
-              ],
-            ),
-          ),
-
-          // =============================== 3b. FAVOURITE MASJID ALERTS
-          const SectionHeader(title: 'Favourite masjid alerts'),
-          GoldCard(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Reminders at the Jamaat times of the masjids you have starred. '
-                  'The same switches live on each masjid’s own page.',
-                  style: GoogleFonts.outfit(
-                      fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.5),
-                ),
-                if (!_favLoaded)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text('Loading your favourites…',
-                        style: GoogleFonts.outfit(fontSize: 12, color: NoorColors.onGlassMuted)),
-                  )
-                else if (_favMasjids.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12, bottom: 6),
-                    child: Text(
-                      'No favourites yet — tap the star on a masjid to follow '
-                      'its board and get its Jamaat alerts.',
-                      style: GoogleFonts.outfit(fontSize: 12, color: NoorColors.onGlassMuted, height: 1.5),
-                    ),
-                  )
-                else
-                  for (final Masjid masjid in _favMasjids) ...<Widget>[
-                    Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      value: _settings.favAlertFor(masjid.id),
-                      activeThumbColor: NoorColors.emerald,
-                      title: Text(
-                        masjid.name.isEmpty ? 'Masjid' : masjid.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                            fontSize: 13, fontWeight: FontWeight.w600, color: NoorColors.onGlass),
-                      ),
-                      subtitle: Text(
-                        _settings.favAlertFor(masjid.id)
-                            ? 'Alerts on — ${_prayerSummary(masjid)}'
-                            : 'Alerts off for this masjid',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                            fontSize: 11, color: NoorColors.onGlassMuted, height: 1.4),
-                      ),
-                      onChanged: (bool enabled) async {
-                        _settings.setFavAlert(masjid.id, enabled);
-                        await NotificationService.scheduleFavouriteAlerts();
-                      },
-                    ),
-                  ],
               ],
             ),
           ),
