@@ -640,6 +640,7 @@ class AppSettings extends ChangeNotifier {
     for (final String prayer in kNotifiablePrayers) 'notifyon_$prayer',
     for (final String prayer in kNotifiablePrayers) 'favmode_$prayer',
     for (final String prayer in kNotifiablePrayers) 'bellmode_$prayer',
+    for (final String prayer in kNotifiablePrayers) 'azantiming_$prayer',
   ];
 
   /// The profile these preferences belong to; `anon` while signed out.
@@ -739,6 +740,16 @@ class AppSettings extends ChangeNotifier {
   /// own.
   final Map<String, String> _bellModes = <String, String>{};
 
+  /// prayer key → "When will the Azaan play?" answered for that prayer alone.
+  ///
+  /// The same shape, and the same reason, as [_bellModes]: no default
+  /// entries, because a prayer nobody has spoken for *inherits* the
+  /// profile's own answer ([_azaanTiming]) — which is what every install
+  /// that has ever chosen a mode keeps reading, so moving the question from
+  /// Settings into each bell changes no alarm until a prayer is actually
+  /// re-answered.
+  final Map<String, String> _azaanTimings = <String, String>{};
+
   /// masjid id → whether this account wants alerts from that masjid.
   ///
   /// Absent means **on**: a masjid you starred is one you asked to hear from,
@@ -804,14 +815,32 @@ class AppSettings extends ChangeNotifier {
             _favModes[prayer] == kFavModeOffset && (_notifyOffsets[prayer] ?? -1) > 0,
       );
 
-  /// The Azaan timings the user is allowed to pick.
-  ///
-  /// Only one choice is offered: the Azaan plays once per prayer, at the
-  /// favourite masjid's Jamaat time. A pre-prayer reminder (At time, N min)
-  /// does not hide this option anymore.
-  /// The choices the "When will the Azaan play?" dropdown offers, in the order
-  /// they appear.
+  /// The choices "When will the Azaan play?" offers, in the order they appear
+  /// — the same four in Settings' old dropdown and in every prayer's own bell.
   List<String> get azaanTimingOptions => kAzaanTimingOptions;
+
+  /// "When will the Azaan play?" for [prayer] — its own answer if it has
+  /// one, the profile's answer otherwise.
+  ///
+  /// The inheritance is what makes the move out of Settings free: a reader
+  /// who set "Only at Awwal time" there keeps every prayer on Awwal, and
+  /// only a prayer whose bell is re-answered writes an answer of its own.
+  String azaanTimingFor(String prayer) {
+    final String own = _azaanTimings[prayer] ?? '';
+    return kAzaanTimingOptions.contains(own) ? own : _azaanTiming;
+  }
+
+  /// Whether [prayer]'s *calculated* (Awwal) reminder may be armed.
+  bool schedulesAwwalFor(String prayer) {
+    final String timing = azaanTimingFor(prayer);
+    return timing == kAzaanTimingAwwalOnly || timing == kAzaanTimingBoth;
+  }
+
+  /// Whether [prayer]'s favourite-masjid Jamaat alert may be armed.
+  bool schedulesJamaatFor(String prayer) {
+    final String timing = azaanTimingFor(prayer);
+    return timing == kAzaanTimingJamaatOnly || timing == kAzaanTimingBoth;
+  }
 
   /// Whether the calculated (Awwal) reminders may be armed. With `none`
   /// selected both of these read false and every Azaan alarm is cancelled.
@@ -1045,6 +1074,15 @@ class AppSettings extends ChangeNotifier {
         } else {
           _bellModes.remove(key);
         }
+        // The same answer for this prayer's own "When will the Azaan play?".
+        // Absent means "inherit the profile's", so a reader who only ever
+        // answered in Settings keeps every prayer exactly where it was.
+        final String timing = prefs.getString(_key('azantiming_$key')) ?? '';
+        if (kAzaanTimingOptions.contains(timing)) {
+          _azaanTimings[key] = timing;
+        } else {
+          _azaanTimings.remove(key);
+        }
       }
       _loadFavAlerts(prefs);
       _loaded = true;
@@ -1275,6 +1313,29 @@ class AppSettings extends ChangeNotifier {
     _azaanTiming = kAzaanTimingOptions.contains(key) ? key : kAzaanTimingDefault;
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), _azaanTiming));
+  }
+
+  /// Answers "When will the Azaan play?" for [prayer] alone, from its own
+  /// bell on Home — the door Settings used to hold, one prayer at a time.
+  ///
+  /// An answer equal to the profile's own is *cleared* rather than written:
+  /// a prayer that agrees with the default has no business pinning a copy of
+  /// it, and keeping the map free of agreeable entries is what lets a later
+  /// change to the profile's answer reach that prayer too.
+  void setAzaanTimingFor(String prayer, String key) {
+    if (!kNotifiablePrayers.contains(prayer)) return;
+    final String chosen =
+        kAzaanTimingOptions.contains(key) ? key : kAzaanTimingDefault;
+    if (chosen == _azaanTiming) {
+      if (_azaanTimings.remove(prayer) == null) return;
+    } else {
+      _azaanTimings[prayer] = chosen;
+    }
+    notifyListeners();
+    _put((SharedPreferences p) {
+      if (chosen == _azaanTiming) return p.remove(_key('azantiming_$prayer'));
+      return p.setString(_key('azantiming_$prayer'), chosen);
+    });
   }
 
   /// Takes [defaults] as this profile's starting point, in one write —

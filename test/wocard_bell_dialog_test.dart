@@ -109,6 +109,26 @@ void main() {
     }
     expect(find.text('Custom…'), findsOneWidget,
         reason: 'the door to a number no chip carries');
+
+    // …and the half that moved in from Settings: which clock may ring for
+    // this prayer. Four answers, two rows of two, and the caption reads the
+    // pick back rather than naming a key.
+    expect(find.text('When will the Azaan play?'), findsOneWidget,
+        reason: 'the mode Settings used to ask for all five at once, asked '
+            'of this prayer instead');
+    for (final String label in <String>[
+      'Jamaat time',
+      'Awwal time',
+      'Both times',
+      'Off',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    expect(
+      find.textContaining('plays once for this prayer'),
+      findsOneWidget,
+      reason: 'the default mode is said back in the reader’s own terms',
+    );
     // The caption names the clock the offset is measured against — this
     // build's mode is "only at my masjid's Jamaat time".
     expect(
@@ -239,6 +259,60 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('a mode chip files on this prayer alone and re-arms the card',
+      (WidgetTester tester) async {
+    final AppSettings settings = await pumpCard(tester);
+    await openBell(tester);
+
+    // Fajr is answered for the profile's default (Jamaat) until this tap;
+    // the tap is what makes it its own answer.
+    await tester.tap(find.text('Awwal time'));
+    await tester.pumpAndSettle();
+
+    expect(settings.azaanTimingFor('fajr'), kAzaanTimingAwwalOnly,
+        reason: 'the prayer whose dialog was open is the prayer answered');
+    expect(settings.schedulesAwwalFor('fajr'), isTrue);
+    expect(settings.schedulesJamaatFor('fajr'), isFalse);
+    for (final String key in kNotifiablePrayers.skip(1)) {
+      expect(settings.azaanTimingFor(key), kAzaanTimingDefault,
+          reason: '$key was not asked');
+    }
+    // The profile's own answer has not moved: it is still what every
+    // un-answered prayer reads, and what Settings used to hold.
+    expect(settings.azaanTiming, kAzaanTimingDefault);
+
+    // The caption follows the pick, and the dialog stays open over it.
+    expect(
+      find.textContaining('plays at the calculated Awwal time'),
+      findsOneWidget,
+    );
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    // The chosen chip is the only one lit.
+    final Container lit = tester.widget<Container>(
+      find.descendant(
+        of: find.widgetWithText(InkWell, 'Awwal time'),
+        matching: find.byType(Container),
+      ),
+    );
+    expect((lit.decoration! as BoxDecoration).color, NoorColors.emerald);
+
+    // "Off" is this prayer's own silence — it must not reach its siblings,
+    // and it must not close the question over the reader's head.
+    await tester.tap(find.text('Off'));
+    await tester.pumpAndSettle();
+    expect(settings.azaanTimingFor('fajr'), kAzaanTimingNone);
+    expect(settings.schedulesAwwalFor('fajr'), isFalse);
+    expect(settings.schedulesJamaatFor('fajr'), isFalse);
+    for (final String key in kNotifiablePrayers.skip(1)) {
+      expect(settings.azaanTimingFor(key), kAzaanTimingDefault,
+          reason: '$key still follows the profile');
+    }
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('the dialog is wired to the card’s re-arm and keeps its doors shut',
       () {
     final String card = File('lib/today_prayer_card.dart').readAsStringSync();
@@ -257,6 +331,14 @@ void main() {
     expect(card, contains('_armReschedule();'),
         reason: 'every pick rides the same debounced re-arm the card has '
             'always used, so five chips cost one schedule pass');
+    // The mode that used to live in Settings' dropdown rides the same
+    // re-arm, or a reader could move a prayer's clock and still hear the
+    // old one — and it files against the prayer whose dialog it is in.
+    expect(card, contains('setAzaanTimingFor(prayer, mode)'),
+        reason: 'the mode is this prayer’s answer, not the profile’s');
+    expect(card, contains('_azaanTimingChip('),
+        reason: 'and its door is the bell dialog, where the prayer the '
+            'answer belongs to is already named on the title');
 
     // The old door is bolted shut: no sheet, no button to open it.
     expect(card, isNot(contains('_AzaanAlertSheet')),

@@ -13,11 +13,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// minutes before. Two doors to one choice is the "double" that was named,
 /// so the rows are gone.
 ///
-/// What stays is what Home does *not* ask: the master gate, the mode that
-/// says which clock (Awwal, the masjid's Jamaat, both) may ring at all, and
-/// the clip list under "Azan sound" — the bell dialog itself points there,
-/// because the clip is one voice for every prayer and a per-prayer door for
-/// it would promise a choice no per-prayer alarm can keep.
+/// What stays is what Home does *not* ask: the master gate, and the clip
+/// list under "Azan sound" — the bell dialog itself points there, because
+/// the clip is one voice for every prayer and a per-prayer door for it
+/// would promise a choice no per-prayer alarm can keep. The mode that used
+/// to stand between them ("When will the Azaan play?") answered the same
+/// question for all five prayers at once, so it moved into each prayer's
+/// own bell dialog rather than staying here.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -47,12 +49,13 @@ void main() {
     expect(find.text('At Jamaat time'), findsNothing,
         reason: 'and its chips with it');
 
-    // What stays is every prayer's own answer — the gate and the mode.
+    // What stays is the gate. The mode that used to stand beside it —
+    // "When will the Azaan play?" — has moved into every prayer's own
+    // bell dialog on Home, so this screen no longer asks it at all.
     expect(find.text('Enable Azan notifications'), findsOneWidget);
-    expect(find.text('When will the Azaan play?'), findsOneWidget,
-        reason: 'no bell on Home can say which *source* may ring — that '
-            'question is the same for every prayer, which is this '
-            'screen’s own business');
+    expect(find.text('When will the Azaan play?'), findsNothing,
+        reason: 'the mode is one answer per prayer now, and a single '
+            'dropdown here could only answer for all five at once');
 
     // And the screen points at the door that took the rows' place, or a
     // removed control with no forwarding address is a reader hunting for

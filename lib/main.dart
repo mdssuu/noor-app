@@ -2465,14 +2465,16 @@ class NotificationService {
     // below, from the same window Home's red line prints.
     await _scheduleMakruh(day: day, now: now);
 
-    // "When will the Azaan play?" — this pass arms the *calculated* (Awwal) reminders.
-    // `cancelAzan()` above has already retired yesterday's copy of both this
-    // block and its ringer-stream twins, so leaving here is what keeps only the
+    // "When will the Azaan play?" — asked of each prayer now rather than of
+    // the profile: this pass arms the *calculated* (Awwal) reminders for the
+    // prayers whose own bell allows that clock. `cancelAzan()` above has
+    // already retired yesterday's copy of both this block and its
+    // ringer-stream twins, so leaving here is what keeps only the
     // favourite-masjid Jamaat times ringing ("Only at Jamaat time"), and
     // what makes "Band" cancel everything.
-    if (!settings.schedulesAwwal) {
-      debugPrint('Azan ▸ timing "${settings.azaanTiming}": '
-          'calculated (Awwal) reminders cancelled, none scheduled');
+    if (!kNotifiablePrayers.any(settings.schedulesAwwalFor)) {
+      debugPrint('Azan ▸ no prayer asks for the calculated (Awwal) clock: '
+          'calculated reminders cancelled, none scheduled');
       return;
     }
 
@@ -2480,6 +2482,10 @@ class NotificationService {
 
     for (final String key in kNotifiablePrayers) {
       if (!settings.notifyOnFor(key)) continue;
+      // This prayer's own "When will the Azaan play?" decides whether the
+      // calculated clock may ring for it — the profile's answer only stands
+      // in until this prayer's bell says otherwise.
+      if (!settings.schedulesAwwalFor(key)) continue;
       final DateTime? prayerTime = day.times[key];
       if (prayerTime == null) continue;
 
@@ -2517,10 +2523,11 @@ class NotificationService {
       final String cardTitle =
           '${prayerByKey(key).label} • ${settings.format(prayerTime)}';
       // This pass is reached only when the *calculated* source is armed
-      // (`schedulesAwwal`), so the words have to name that clock. It used to
-      // say "at your masjid" — the favourite pass's own sentence — which in
-      // "At both times" mode handed a reader two cards that named the same
-      // prayer twice with two different times and one identical description.
+      // for this prayer (`schedulesAwwalFor`), so the words have to name
+      // that clock. It used to say "at your masjid" — the favourite pass's
+      // own sentence — which in "At both times" mode handed a reader two
+      // cards that named the same prayer twice with two different times
+      // and one identical description.
       final String cardBody = minutesBefore < 0
           ? 'It is time for ${prayerByKey(key).label} — Awwal time.'
           : '${prayerByKey(key).label} in $minutesBefore minutes, before '
@@ -2744,12 +2751,15 @@ class NotificationService {
     // offline moment deleted every favourite alert and re-armed none of them:
     // the clear ran, the fetches returned null, and the range was left empty
     // until the user happened to open the app again.
-    final bool armsJamaat = settings.schedulesJamaat && settings.notificationsEnabled;
-    if (!settings.schedulesJamaat) {
+    final bool anyJamaat =
+        kNotifiablePrayers.any(settings.schedulesJamaatFor);
+    final bool armsJamaat = anyJamaat && settings.notificationsEnabled;
+    if (!anyJamaat) {
       // "When will the Azaan play?" — this pass arms the *Jamaat* reminders,
-      // so returning here is exactly the "Only at Awwal time" / "Off" half of
-      // the fix: nothing in the favourite range is left scheduled.
-      debugPrint('Azan ▸ timing "${settings.azaanTiming}": '
+      // asked per prayer now: returning here is exactly the "Only at Awwal
+      // time" / "Off" half of the fix, where no prayer's own bell allows
+      // the masjid's clock — nothing in the favourite range is left armed.
+      debugPrint('Azan ▸ no prayer asks for the masjid’s Jamaat clock: '
           'favourite-masjid Jamaat alerts cancelled, none scheduled');
     } else if (!settings.notificationsEnabled) {
       debugPrint('Azan ▸ favourite masjid alerts: master switch off, none scheduled');
@@ -2830,6 +2840,10 @@ class NotificationService {
       for (int p = 0; p < kNotifiablePrayers.length; p++) {
         final String key = kNotifiablePrayers[p];
         if (!settings.notifyOnFor(key)) continue;
+        // The masjid's clock is this prayer's to allow, same as the
+        // calculated one above — a prayer set to "Only at Awwal time" must
+        // not find its board's Jamaat cell ringing beside it.
+        if (!settings.schedulesJamaatFor(key)) continue;
 
         final int? minutesOfDay = parseClockTime((data[key] as String?) ?? '');
         if (minutesOfDay == null) continue;
