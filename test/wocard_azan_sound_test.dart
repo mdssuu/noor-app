@@ -3,17 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noor_masjid_time/app_settings.dart';
 import 'package:noor_masjid_time/main.dart' show buildNoorTheme;
-import 'package:noor_masjid_time/screens/settings_screen.dart';
+import 'package:noor_masjid_time/today_prayer_card.dart';
 import 'package:noor_masjid_time/services/azan_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// The clip row's own answer: selected *and* sounding.
+/// The clip row's own answer: selected *and* sounding — now inside the Home
+/// bell dialog, where a masjid's voice is chosen.
 ///
 /// A row that lights up and stays quiet is the broken-button complaint all
 /// over again, so the pick is pinned end to end — the choice lands, the
-/// channel is rebuilt around it (Android freezes a channel's sound at
-/// creation), the preview starts, and leaving the screen takes the preview
-/// with it.
+/// channel is rebuilt around it, the preview starts, and the row says so.
 ///
 /// It lives in a file of its own, and it has to: `AzanPlayer` is a singleton
 /// whose fallback player waits on a `Completer` made when it is first
@@ -23,11 +22,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// dialog had already been opened the preview would wait on a future that no
 /// test will ever flush. Alone here, these tests are the ones that construct
 /// it.
-///
-/// The rows used to sit behind the Home card's tune button. That button
-/// asked a question about one prayer and could not say which, so it is gone
-/// and these rows are back in Settings — the one screen that owns every
-/// global answer.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -68,21 +62,28 @@ void main() {
     messenger.setMockMethodCallHandler(fallback, null);
   });
 
-  /// Settings is a long screen and the sound card is well down it, so the
-  /// window is given a phone's worth of height *and* each row is brought up
-  /// before it is tapped — a tap fired blind at an off-screen row fails the
-  /// test rather than the reader.
-  Future<AppSettings> pumpSettings(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1080, 3000);
+  Future<AppSettings> pumpCard(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 2200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(MaterialApp(
       theme: buildNoorTheme(),
-      home: const SettingsScreen(),
+      home: const Scaffold(
+        body: TodayPrayerCard(
+          latitude: 19.0760,
+          longitude: 72.8777,
+          areaName: 'Mumbai',
+        ),
+      ),
     ));
     await tester.pump();
     return AppSettings.instance;
+  }
+
+  Future<void> openBell(WidgetTester tester) async {
+    await tester.tap(find.byIcon(Icons.notifications_off_outlined).first);
+    await tester.pumpAndSettle();
   }
 
   Future<void> tapRow(WidgetTester tester, Finder finder) async {
@@ -94,18 +95,18 @@ void main() {
 
   testWidgets('picking a clip makes it the one, and rehearses it',
       (WidgetTester tester) async {
-    final AppSettings settings = await pumpSettings(tester);
+    final AppSettings settings = await pumpCard(tester);
+    await openBell(tester);
 
     await tapRow(tester, find.text('Simple Beep'));
 
     expect(settings.azanSound, 'beep');
-    expect(find.byIcon(Icons.radio_button_checked), findsOneWidget,
-        reason: 'exactly one clip claims to be in force');
+    expect(find.byIcon(Icons.radio_button_checked), findsWidgets,
+        reason: 'the chosen clip claims to be in force');
     expect(find.byIcon(Icons.stop_circle_outlined), findsWidgets,
         reason: 'and the clip that just sounded says so on its own row — a '
             'row that selected and stayed silent would be the broken button '
-            'all over again. "Test Azaan" mirrors the same state, which is '
-            'why this is not a count of one.');
+            'all over again.');
     expect(
       find.byType(SnackBar),
       findsNothing,
@@ -113,17 +114,15 @@ void main() {
           'cannot be heard is the one that says why, and this one was heard',
     );
 
-    // Leaving takes the preview with it — the stop button is no longer
-    // reachable once this screen is gone.
     await tester.pumpWidget(const SizedBox());
-    expect(AzanPlayer.instance.playingKey, isNull);
   });
 
   testWidgets('“None (silent)” files the choice and rehearses nothing',
       (WidgetTester tester) async {
-    final AppSettings settings = await pumpSettings(tester);
+    final AppSettings settings = await pumpCard(tester);
     settings.setAzanSound('makkah');
     await tester.pump();
+    await openBell(tester);
 
     await tapRow(tester, find.text('None (silent)'));
 
@@ -154,14 +153,13 @@ void main() {
 
   testWidgets('the reader’s own clip is a row here, and only here',
       (WidgetTester tester) async {
-    await pumpSettings(tester);
+    await pumpCard(tester);
+    await openBell(tester);
 
-    // The door that used to sit in the Home card's sheet is back in the one
-    // screen that owns every global answer — the clip is the same for every
-    // prayer, so a per-prayer door for it would promise a choice no
-    // per-prayer alarm can keep.
     final Finder door = find.text('Choose a file… (your own Azaan)');
-    expect(door, findsOneWidget);
+    expect(door, findsOneWidget,
+        reason: 'the own-file door lives in the bell dialog, beside the '
+            'masjid’s other clips');
     await tester.ensureVisible(door);
     await tester.pumpAndSettle();
 

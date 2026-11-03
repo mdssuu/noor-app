@@ -7,7 +7,9 @@ import android.content.pm.ServiceInfo
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 
@@ -42,14 +44,56 @@ class AzaanPlaybackService : Service() {
     /** True once this instance has actually entered the foreground. */
     private var foregrounded = false
 
+    /** True once this instance has taken a prayer under its care. */
+    private var started = false
+
+    /** False once the card was dismissed by the reader, who wants no card. */
+    private var keepCard = true
+
     /** Set the moment the card is handed back, so no path posts it twice. */
     private var retired = false
+
+    /**
+     * Watches the card the recitation is standing behind.
+     *
+     * A clip with no notification is a clip nobody can stop, so the two are
+     * kept together for their whole life, not just at the start: if the card
+     * is taken out of the shade — by the reader, by a reschedule, by an OEM
+     * clearing the tray — the sound goes with it. That is the plain read of
+     * "until a notification with a stop button is there, the Azaan must not
+     * play", and it is also the only state in which the `STOP AZAN` button
+     * and the lock screen's own window can be reached.
+     */
+    private val cardWatch = object : Runnable {
+        override fun run() {
+            if (!PrayerCard.isLive(this@AzaanPlaybackService, cardId)) {
+                Log.i(TAG, "card $cardId is gone — stopping the recitation")
+                stopFromKey()
+                return
+            }
+            guard.postDelayed(this, CARD_WATCH_MS)
+        }
+    }
+
+    private val guard = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val sound = intent?.getStringExtra(EXTRA_SOUND)
         val stopping = intent?.action == ACTION_STOP
+        val dismissing = intent?.action == ACTION_DISMISS
+
+        if (dismissing) {
+            // The reader swiped the card away. That is the same request as
+            // STOP AZAN, with one difference: the card is already gone, so
+            // handing it back afterwards would put a reminder on screen the
+            // reader has just dismissed.
+            keepCard = false
+            AzaanAudio.stop()
+            finish()
+            return START_NOT_STICKY
+        }
 
         if (stopping) {
             // The notification's "STOP AZAN" button lands here, from the lock
@@ -83,23 +127,52 @@ class AzaanPlaybackService : Service() {
         // this one card rather than two: whichever posts last replaces the
         // other, and the Dart side does not post at all while a clip is
         // armed, so there is only ever this one.
+        //
+        // The foreground notification is deliberately **not** the prayer's
+        // card, and that is the fix behind "the Azaan plays but the
+        // notification is not there". A foreground-service notification is a
+        // thing the *system* manages: it is cancelled the instant the service
+        // is told to stand down, and on some OEM builds it is cancelled on its
+        // own within the same second (`Cancel FGS notification … Id:3`). While
+        // both were one object, that cancellation took the card — and with it
+        // the only STOP button — down, leaving the recitation sounding with
+        // nothing on screen. Two objects, one job each: this one keeps the
+        // process alive and comes and goes with it, the card is posted by the
+        // receiver and belongs to the prayer.
         try {
-            val notification =
-                PrayerCard.build(this, cardId, cardTitle, cardBody, playing = true)
+            val notification = foregroundNotification()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
-                    cardId,
+                    NOTIFICATION_ID,
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
                 )
             } else {
                 @Suppress("DEPRECATION")
-                startForeground(cardId, notification)
+                startForeground(NOTIFICATION_ID, notification)
             }
             foregrounded = true
+            started = true
+            Log.i(
+                TAG,
+                "foreground up for $cardId (live: " +
+                    (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                        .activeNotifications.joinToString(",") { "${it.id}" } +
+                    ")",
+            )
         } catch (error: Exception) {
             // Not fatal: the clip matters more than the foreground status.
             Log.w(TAG, "could not enter foreground: ${error.message}")
+        }
+
+        // No card, no clip. `startForeground` can be refused outright — a
+        // revoked grant, an OEM rule — and the receiver's own post can be
+        // cancelled before this service is up. Either way the recitation would
+        // run with nothing to press, so it does not run at all.
+        if (!PrayerCard.canShow(this)) {
+            Log.w(TAG, "notifications are off — no card, so no recitation")
+            finish()
+            return START_NOT_STICKY
         }
 
         // The service outlives the clip: either the decoder hands back
@@ -110,6 +183,21 @@ class AzaanPlaybackService : Service() {
             finish()
             return START_NOT_STICKY
         }
+
+        // The card and the clip now live and die together — but only where
+        // the phone can answer the question. `getActiveNotifications()`
+        // answers `empty` on some OEM builds even for a card that is up, and
+        // a watcher that believed that would stop every Azaan a second after
+        // it began. So it is armed only if the first answer was the honest
+        // one; everywhere else the foreground service (which the system cannot
+        // dismiss) is the guarantee instead.
+        if (PrayerCard.isLive(this, cardId)) {
+            guard.postDelayed(cardWatch, CARD_WATCH_MS)
+        } else {
+            Log.i(TAG, "this phone cannot report its own cards — card watcher off")
+        }
+
+        raiseScreen()
 
         // A window *is* raised, and that is the point.
         //
@@ -141,6 +229,31 @@ class AzaanPlaybackService : Service() {
     }
 
     /**
+     * The pinned "an Azaan is running" line, owned by the service alone.
+     *
+     * Silent, because the recitation is the only sound this app makes, and
+     * deliberately separate from [PrayerCard]'s id so a system that cancels a
+     * foreground notification cannot cancel the prayer with it.
+     */
+    private fun foregroundNotification(): android.app.Notification {
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, PrayerCard.CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(this)
+        }
+        return builder
+            .setSmallIcon(R.drawable.ic_lock_moon)
+            .setContentTitle(cardTitle ?: "Azaan")
+            .setContentText("Azaan playing")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(android.app.Notification.CATEGORY_SERVICE)
+            .build()
+    }
+
+    /**
      * Hands the prayer's card back and retires the service.
      *
      * **Detach**, never remove. The card belongs to the prayer and has to
@@ -155,12 +268,18 @@ class AzaanPlaybackService : Service() {
      * conjure a card for a prayer nothing has happened to.
      */
     private fun finish() {
+        Log.i(TAG, "retiring (foregrounded=$foregrounded, retired=$retired)")
+        guard.removeCallbacks(cardWatch)
         releaseSession()
         if (!retired) {
             retired = true
             if (foregrounded) {
                 @Suppress("DEPRECATION")
-                stopForeground(false)
+                stopForeground(true)
+            }
+            // The prayer's card outlives the clip — that is the promise a
+            // reminder makes — unless the reader took it away themselves.
+            if (started && keepCard) {
                 PrayerCard.show(
                     applicationContext,
                     cardId,
@@ -172,6 +291,32 @@ class AzaanPlaybackService : Service() {
         }
         stopSelf()
         up = false
+    }
+
+    /**
+     * Puts [AzaanActivity] up, from here rather than from the card.
+     *
+     * The card used to carry the launch as a full-screen intent, and on a
+     * phone that also has its own pop-up switch that was actively harmful:
+     * MIUI reads a full-screen intent as a request for a pop-up it may not
+     * have granted, and answers by removing the notification outright — the
+     * Azaan then played with no card and no window, which is precisely the
+     * complaint. Where [PopUpWindows] says a window may be raised (the
+     * overlay grant, or MIUI's own switch), it is raised here instead, and the
+     * card stays a plain notification nobody has any reason to take down.
+     *
+     * A launch that is refused is logged and survivable: the card is still in
+     * the shade with its `STOP AZAN` button, and the rocker is watched one
+     * layer down, so only the on-screen button is lost — not the control.
+     */
+    private fun raiseScreen() {
+        if (!PopUpWindows.allowed(this)) return
+        try {
+            startActivity(AzaanActivity.launch(this, cardTitle))
+            Log.i(TAG, "recitation screen raised directly")
+        } catch (error: Exception) {
+            Log.w(TAG, "could not raise the recitation screen: ${error.message}")
+        }
     }
 
     /** The volume rocker is the mute the user reaches for; hand it to them. */
@@ -298,6 +443,9 @@ class AzaanPlaybackService : Service() {
     companion object {
         const val ACTION_PLAY = "com.sunesra_app.action.PLAY_AZAAN_SERVICE"
         const val ACTION_STOP = "com.sunesra_app.action.STOP_AZAAN_SERVICE"
+
+        /** The card was swiped away: stop, and do not put it back. */
+        const val ACTION_DISMISS = "com.sunesra_app.action.DISMISS_AZAAN_SERVICE"
         const val EXTRA_SOUND = "sound"
         const val EXTRA_TITLE = "title"
 
@@ -358,6 +506,9 @@ class AzaanPlaybackService : Service() {
         }
 
         private const val TAG = "Noor/AzanService"
+
+        /** How often the card behind the clip is looked for. */
+        private const val CARD_WATCH_MS = 1_000L
 
         /**
          * The fallback card id, for a start that arrived with no prayer to

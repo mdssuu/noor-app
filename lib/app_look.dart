@@ -1126,9 +1126,11 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
   /// moment the hero switches prayers.
   DateTime? _nextJamaat;
 
-  /// Today's makruh (Zawal) window, carried from the same recompute so
-  /// card A never has to ask `AppSettings.compute` again — that call owns a
-  /// single slot and a second ask would evict the day's times mid-build.
+  /// The prohibited-time window in force right now — sunrise until the sun
+  /// has cleared the horizon, or zawal until Dhuhr — carried from the same
+  /// recompute so card A never has to ask `AppSettings.compute` again: that
+  /// call owns a single slot and a second ask would evict the day's times
+  /// mid-build.
   ///
   /// Held only while the clock is *inside* it (see [_recompute]): card A
   /// announces the window during Makruh and falls silent the rest of the
@@ -1218,13 +1220,12 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
 
   /// The name the reader is given for [key] on [onDay]'s calendar.
   ///
-  /// Friday's noon prayer is Jummah — the hero says so wherever it names the
-  /// prayer, so the icon glyph and the times card beneath it read the one
-  /// name together.
-  static String _labelFor(String key, DateTime onDay) {
-    if (key == 'dhuhr' && onDay.weekday == DateTime.friday) return 'Juma';
-    return _labels[key]!;
-  }
+  /// Friday does not rename noon here. Jummah is its own Friday appointment
+  /// and shows up where the Jummah section belongs: in the Jamaat line under
+  /// this card's Awwal (see [_nextCard]), and as the last row of the times
+  /// card beneath the hero. The prayer the countdown is running to is still
+  /// Dhuhr on its own calculated clock.
+  static String _labelFor(String key, DateTime onDay) => _labels[key]!;
 
   /// The board quoted on this card, or `null` when it publishes none of the
   /// five — a starred masjid with an empty board must not claim the credit,
@@ -1294,21 +1295,28 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
             ? _jamaatOn(quoted, 'fajr', day.fajrTomorrow)
             : _jamaatOn(quoted, nextKey, now);
 
-    // The window itself, gated to the minutes it covers: card A warns
-    // *during* Makruh and falls silent once Dhuhr opens — the reader is
-    // told once, at the hour it matters, not left a standing note.
+    // The windows themselves, gated to the minutes they cover: card A warns
+    // *during* a prohibited time and falls silent once it closes — at sunrise
+    // the window closes when the sun has cleared the horizon, at zawal when
+    // Dhuhr opens. The reader is told once, at the hour it matters, not left
+    // a standing note. The two never overlap, and the morning one wins only
+    // because it is checked first.
+    final ({DateTime start, DateTime end})? sunrise = day.makruhSunriseWindow;
     final ({DateTime start, DateTime end})? zawal = day.makruhWindow;
+    bool running(({DateTime start, DateTime end})? window) =>
+        window != null &&
+        !now.isBefore(window.start) &&
+        now.isBefore(window.end);
+
+    final ({DateTime start, DateTime end})? active =
+        running(sunrise) ? sunrise : running(zawal) ? zawal : null;
 
     setState(() {
       _next = next;
       _prev = prev;
       _nextCalc = nextCalc;
       _nextJamaat = nextJamaat;
-      _makruh = zawal != null &&
-              !now.isBefore(zawal.start) &&
-              now.isBefore(zawal.end)
-          ? zawal
-          : null;
+      _makruh = active;
     });
   }
 
@@ -1404,10 +1412,10 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
           // ------------------------------------- the makruh line, up top
           //
           // Not tucked inside a card where it reads as a footnote, and not
-          // sitting in the Today card all day either: the half hour itself
-          // stands above the pair — big, in the palette's one danger red —
-          // for exactly the minutes it covers, then vanishes. When zawal is
-          // on there is no missing it; when it is past there is no stale
+          // sitting in the Today card all day either: the prohibited window
+          // itself stands above the pair — big, in the palette's one danger
+          // red — for exactly the minutes it covers, then vanishes. When it
+          // is on there is no missing it; when it is past there is no stale
           // note to ignore.
           if (_makruh != null) ...<Widget>[
             Container(
@@ -1723,6 +1731,12 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
     required AppSettings settings,
   }) {
     final DateTime? jamaatAt = _nextJamaat;
+    // Friday's Dhuhr is the one prayer whose Jamaat line is a *Jummah*
+    // line: that is the section the reader asked for — only on Friday, and
+    // only here, under the Awwal. Every other day and prayer keeps saying
+    // "Jamaat".
+    final bool jummahLine = next?.label == 'Dhuhr' &&
+        (widget.debugNow ?? DateTime.now()).weekday == DateTime.friday;
     // The Awwal — when this prayer opens on the official clock: the same
     // instant card A names the End of the prayer before it, said here in
     // the next prayer's own voice because both of its times belong
@@ -1833,7 +1847,8 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
               Text(
                 jamaatAt == null
                     ? 'Jamaat —'
-                    : 'Jamaat ${settings.format(jamaatAt)}',
+                    : '${jummahLine ? 'Juma' : 'Jamaat'} '
+                        '${settings.format(jamaatAt)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(

@@ -79,8 +79,16 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         // voice in this state, and it was the half that could go missing
         // while an Azaan bell on the same phone still arrived.
         if (sound == "silent") {
-            Log.i(TAG, "azaan $id fired on a muted bell — card only")
-            PrayerCard.show(context, id, title, body, playing = false)
+            // A muted bell is not a quiet card: the reminder is the whole of
+            // what that bell asked for, so it arrives the way the phone's own
+            // notifications do — the system sound — and with no mute button,
+            // because there is no recitation to mute. The channel it rides
+            // carries the phone's default sound and does not exist for any
+            // other card, so the Azaan's own channel can go on being silent
+            // while the recitation is the only thing this app makes a noise
+            // with.
+            Log.i(TAG, "azaan $id fired on a muted bell — card with the system sound")
+            PrayerCard.show(context, id, title, body, playing = false, ring = true)
             return
         }
 
@@ -95,9 +103,15 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        // Never stack a second recitation on one that is already sounding.
+        // Never stack a second recitation on one that is already sounding —
+        // but do not swallow the card with it. Two prayers can land close
+        // together (a Jamaat pass re-arming while an Awwal clip still runs),
+        // and a reader who heard a recitation and saw no card for the prayer
+        // that just arrived has lost the notification, not the race. The
+        // card is posted before this branch settles the sound.
         if (AzaanAudio.isPlaying()) {
-            Log.i(TAG, "azaan $id ignored, one is already playing")
+            Log.i(TAG, "azaan $id ignored, one is already playing — card only")
+            PrayerCard.show(context, id, title, body, playing = false)
             return
         }
 
@@ -115,6 +129,23 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         // arrival waits on a foreground grant the reader cannot see is not a
         // card, it is a hope.
         PrayerCard.show(context, id, title, body, playing = true)
+
+        // And the clip is only allowed to sound behind that card.
+        //
+        // A recitation with no notification is a clip nobody can stop: the
+        // shade is where `STOP AZAN` lives, and the lock screen's own answer
+        // (the full-screen intent) hangs off the same card. A blocked channel,
+        // a revoked notification permission, or a schedule pass that cancelled
+        // the card between the post above and this line all land here, and all
+        // of them used to play on regardless — "the Azaan sounds, there is no
+        // notification and no popup" was exactly this state. Nothing to press
+        // means nothing to play; the alarm has already re-armed tomorrow, so
+        // declining costs only this prayer's sound, and the card's own line is
+        // in the one place the reader looks.
+        if (!PrayerCard.canShow(context)) {
+            Log.w(TAG, "azaan $id cannot show its card — not playing it")
+            return
+        }
 
         val service = Intent(context, AzaanPlaybackService::class.java)
             .setAction(AzaanPlaybackService.ACTION_PLAY)

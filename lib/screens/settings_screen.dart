@@ -1,8 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -14,7 +11,6 @@ import '../screens/admin_panel_screen.dart';
 import '../screens/privacy_policy_screen.dart';
 import '../services/admin_access.dart';
 import '../services/azaan_alarm.dart';
-import '../services/azan_player.dart';
 import '../services/places_service.dart';
 import '../services/prayer_widget.dart';
 
@@ -48,11 +44,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   int _cityToken = 0;
   Timer? _rescheduleTimer;
 
-  /// The starred masjids, so their alert switches can be edited from here as
-  /// well as from each masjid's own page.
-  List<Masjid> _favMasjids = <Masjid>[];
-  bool _favLoaded = false;
-
   /// The lock-screen card's two upstream switches, `null` until the first
   /// read — the row it feeds says "checking" rather than guessing.
   ({bool notificationsEnabled, bool onLockScreen})? _lockScreenStatus;
@@ -68,12 +59,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   void initState() {
     super.initState();
     _settings.addListener(_onSettingsChanged);
-    // The row highlight and the Test Azaan button both read the player's
-    // playing key, so the screen has to repaint when a clip starts or stops.
-    // Registered as a listener rather than assigned: two screens listening
-    // used to overwrite each other, and whichever opened second froze.
-    AzanPlayer.instance.addListener(_onPlaybackChanged);
-    _loadFavouriteMasjids();
     // The lock-screen row reads the phone's own toggles: once here, and
     // again on every resume — the settings page it opens lives outside the
     // app, and coming back is the first moment a flip there can be seen.
@@ -96,289 +81,12 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (state == AppLifecycleState.resumed) _refreshLockScreenStatus();
   }
 
-  void _onPlaybackChanged() {
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _loadFavouriteMasjids() async {
-    // The loading flag comes down on *every* path out of here. An offline
-    // `.get()` does not fail — it waits, and the screen sat on its spinner
-    // forever; a throw out of the cache read did the same thing from the
-    // other end.
-    final List<Masjid> loaded = <Masjid>[];
-    try {
-      final List<String> ids = await FavouriteStore.cached();
-      for (final String id in ids) {
-        try {
-          final DocumentSnapshot<Map<String, dynamic>> snap = await FirebaseFirestore
-              .instance
-              .collection('masjids')
-              .doc(id)
-              .get()
-              .timeout(const Duration(seconds: 20));
-          if (snap.exists) loaded.add(Masjid.fromDoc(snap));
-        } catch (error) {
-          debugPrint('Noor ▸ settings favourite lookup failed: $error');
-        }
-      }
-    } catch (error) {
-      debugPrint('Noor ▸ settings favourites could not be listed: $error');
-    }
-    if (!mounted) return;
-    setState(() {
-      _favMasjids = loaded;
-      _favLoaded = true;
-    });
-  }
-
-  /// Which prayers a masjid can currently alert for, for the line under each
-  /// switch — "Alerts on" on its own says nothing about what will actually
-  /// happen at prayer time.
-  String _prayerSummary(Masjid masjid) {
-    final List<String> armed = <String>[
-      for (final String key in kNotifiablePrayers)
-        if (_settings.notifyOnFor(key) &&
-            NotificationService.parseClockTime(masjid.timeFor(key)) != null)
-          prayerByKey(key).label,
-    ];
-    return armed.isEmpty ? 'no prayer switched on yet' : armed.join(', ');
-  }
-
-  /// True while the selected Azaan is audibly playing, so the Test button can
-  /// turn into a Stop button instead of stacking a second clip on the first.
-  bool get _testPlaying => AzanPlayer.instance.playingKey == _settings.azanSound;
-
-  /// Says why nothing sounded when the reader pressed for something to.
-  ///
-  /// [AzanPlayer.preview] answers `false` when the phone is on silent or
-  /// vibrate — the reminder does not override a silence somebody set on
-  /// purpose, and neither does a button that is only an honest rehearsal of
-  /// it. Unexplained, that is the original complaint again: a button that
-  /// does nothing. Every `false` therefore gets one sentence, once.
-  void _explainSilenced() {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 6),
-        content: Text(
-          'Your phone is on silent or vibrate, so nothing is playing — that '
-          'is the Azaan staying quiet exactly as your reminders will. Turn '
-          'the ringer up to hear it.',
-        ),
-      ),
-    );
-  }
-
-  /// Says what "None (silent)" did when the row that chose it was tapped.
-  ///
-  /// The mirror of [_explainSilenced] for the other quiet answer: that one
-  /// explains a phone whose *ringer* refused, this one a choice the reader
-  /// made on purpose. Both exist for the same reason — a row that answers
-  /// nothing has to say which nothing it meant.
-  void _explainSilentPick() {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 6),
-        content: Text(
-          '“None (silent)” is selected — your reminders will stay silent, '
-          'and nothing is playing now.',
-        ),
-      ),
-    );
-  }
-
-  /// A file that was picked once and has since gone missing — an SD card
-  /// pulled, a download deleted — must not keep wearing its own name as if
-  /// it were still there.
-  bool get _customMissing {
-    final String path = _settings.customAzanPath;
-    return path.isEmpty || !File(path).existsSync();
-  }
-
-  /// The reader's own clip, sitting last so the five built-in answers stay
-  /// where a returning reader left them.
-  ///
-  /// It is the one row whose label is *not* a constant: it names the file the
-  /// reader chose, so a second pick is visibly a replacement rather than a
-  /// mystery overwrite. Its door lives here and nowhere else — the Home bell
-  /// dialog answers *when* this prayer rings, and a per-prayer door to a
-  /// global clip would promise a choice no per-prayer alarm can keep.
-  Widget _customSoundRow() {
-    final bool selected =
-        _settings.azanSound == kCustomAzanKey && !_customMissing;
-    final bool playing = AzanPlayer.instance.playingKey == kCustomAzanKey;
-
-    return InkWell(
-      onTap: () => unawaited(_pickCustomFile()),
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-        child: Row(
-          children: <Widget>[
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              size: 19,
-              color: selected
-                  ? NoorColors.onGlassGold
-                  : NoorColors.onGlassMuted,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                _customMissing
-                    ? 'Choose a file… (your own Azaan)'
-                    : customAzanName(_settings.customAzanPath),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.outfit(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected
-                      ? NoorColors.onGlass
-                      : NoorColors.onGlassMuted,
-                ),
-              ),
-            ),
-            Icon(
-              playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
-              size: 22,
-              color: playing ? NoorColors.onGlassGold : NoorColors.gold,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Opens the phone's file picker, copies the chosen clip into the one slot
-  /// the alarm player reads, points every prayer at it and rehearses it.
-  ///
-  /// The copy is what makes the pick survive: a `content://` URI's grant
-  /// lapses the moment the reader's phone sleeps, and the alarm fires with
-  /// the app not running — so the bytes are copied into the app-private
-  /// directory and the stored path is what every future ring opens. The
-  /// preview plays the *copied* file, not the picked one, because that is
-  /// exactly what tomorrow's alarm will play.
-  Future<void> _pickCustomFile() async {
-    final String? path = await AzaanAlarm.pickAudioFile();
-    if (path == null || !mounted) return;
-
-    _settings.setCustomAzanPath(path);
-    // The profile's clip is one global choice — the bells only gate *whether*
-    // a prayer recites, not what it recites — so pointing the pick at the
-    // profile is pointing every praying bell at this file. Writing through
-    // [_settings] also re-arms on the screen's own debounce, exactly as the
-    // built-in rows do.
-    _settings.setAzanSound(kCustomAzanKey);
-    // Android freezes a channel's sound the instant it is created; the
-    // banner stays silent either way, so this is the same rebuild the
-    // built-in rows make rather than anything the custom clip needs.
-    await NotificationService.applyAzanChannel();
-    if (!mounted) return;
-
-    final bool started = await AzanPlayer.instance.previewFile(path);
-    if (!started) _explainSilenced();
-  }
-
-  /// Copies the chosen Azaan into the phone's own ringtone list and says
-  /// where to find it — because a row the reader cannot find is the same as
-  /// no row at all.
-  ///
-  /// The bridge answers with *how* it landed rather than a bare success:
-  /// `ok` carries `added` false when the list already held this title, worth
-  /// its own sentence since "already there" and "failed" read very
-  /// differently — while `denied` is Android 7-9's storage prompt refused
-  /// and `unsupported` a platform with no such list to offer.
-  Future<void> _addToPhoneRingtone() async {
-    final AzanSound chosen = azanSoundByKey(_settings.azanSound);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-
-    // "None (silent)" has no clip to hand over — the same shape as the Test
-    // button's answer one row up: say which of the two the reader picked
-    // rather than exporting nothing at all. The question is the *choice*,
-    // not the resource: the reader's own clip has no bundled resource
-    // either, and it is the one clip most worth handing over.
-    if (chosen.key == 'silent') {
-      messenger.showSnackBar(
-        const SnackBar(
-          duration: Duration(seconds: 6),
-          content: Text(
-            '“None (silent)” has no clip to add — tap an Azaan above first.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    // The reader's own clip is titled by its file, the same name its row
-    // wears in the sheet: this list is keyed by name, so two different
-    // files under one title would find the first row already there and
-    // rewrite *its* bytes rather than adding the second.
-    final String own = customAzanName(_settings.customAzanPath);
-    final String name =
-        chosen.key == kCustomAzanKey && own.isNotEmpty ? own : chosen.label;
-    final String title = 'Noor Azaan - $name';
-    final ({bool added, String code}) outcome =
-        await AzaanAlarm.addToPhoneRingtone(chosen.key, title);
-    if (!mounted) return;
-
-    switch (outcome.code) {
-      case 'ok':
-        messenger.showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 8),
-            content: Text(
-              outcome.added
-                  ? 'Added — “$title” is in your phone’s ringtone list. Open '
-                      'Sound settings and choose it under Phone ringtone.'
-                  : '“$title” is already in your ringtone list — open Sound '
-                      'settings and choose it under Phone ringtone.',
-            ),
-            action: SnackBarAction(
-              label: 'Open sound settings',
-              onPressed: AzaanAlarm.openSoundSettings,
-            ),
-          ),
-        );
-      case 'denied':
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Storage was refused, so the clip cannot leave the app on this '
-              'phone. Allow storage for Noor and tap again.',
-            ),
-          ),
-        );
-      case 'unsupported':
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Only Android phones let Noor add to their ringtone list.',
-            ),
-          ),
-        );
-      default:
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Couldn’t add it to the ringtone list — please try again.',
-            ),
-          ),
-        );
-    }
-  }
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _settings.removeListener(_onSettingsChanged);
     _rescheduleTimer?.cancel();
     _cityController.dispose();
-    AzanPlayer.instance.removeListener(_onPlaybackChanged);
-    // Leaving a preview sounding after the screen that started it is gone
-    // would be its own bug — the stop button is no longer reachable.
-    unawaited(AzanPlayer.instance.stop());
     super.dispose();
   }
 
@@ -498,33 +206,6 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
         ),
       );
-
-  /// The sentence under "When will the Azaan play?".
-  ///
-  /// The row below offers all four modes and each one reads a different
-  /// clock, so this has to describe the mode that is actually live rather
-  /// than repeat the answer for whichever row the reader is about to leave —
-  /// otherwise "Only at Awwal time" still tells them the masjid's Jamaat
-  /// time is what will sound.
-  String get _azaanTimingHint {
-    switch (_settings.azaanTiming) {
-      case kAzaanTimingAwwalOnly:
-        return 'The Azaan plays at the calculated Awwal time — the earliest '
-            'moment each prayer begins.';
-      case kAzaanTimingBoth:
-        return 'The Azaan plays twice for each prayer: once at the '
-            'calculated Awwal time, then again at your favourite masjid’s '
-            'own Jamaat time.';
-      case kAzaanTimingNone:
-        return 'No Azaan will sound for any prayer. The prohibited-time '
-            '(zawal) banner is unaffected.';
-      case kAzaanTimingJamaatOnly:
-      default:
-        return _settings.hasPrePrayerReminder
-            ? 'A pre-prayer reminder is on, so the Azaan plays at your favourite masjid’s Jamaat time.'
-            : 'The Azaan plays once per prayer, at your favourite masjid’s own Jamaat time.';
-    }
-  }
 
   Widget _hint(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
@@ -858,86 +539,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 _hint(
                   'Silence is the default now: nothing is scheduled until a '
-                  'reader asks for the Azaan. Which prayers ring, and how '
-                  'early, is asked for on Home — this screen holds what is '
-                  'the same for every prayer.',
+                  'reader asks for the Azaan. Which prayers ring, when the '
+                  'Azaan plays, how many minutes before, and the clip each '
+                  'masjid recites are all in the bell at the end of a '
+                  'prayer’s row on Home.',
                 ),
-                if (_settings.notificationsEnabled) ...<Widget>[
-                  Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        _label('When will the Azaan play?'),
-                        _hint(_azaanTimingHint),
-                        DropdownButtonFormField<String>(
-                          // The stored value is part of the key, not just the
-                          // option list: `initialValue` only ever seeds the
-                          // field once, so a value arriving from a profile
-                          // switch or the admin config would otherwise leave
-                          // a stale row lit. With four modes offered, a row
-                          // that disagrees with what is on disk is a setting
-                          // the reader cannot see, let alone undo.
-                          key: ValueKey(
-                              '${_settings.azaanTiming}|${_settings.azaanTimingOptions.join('|')}'),
-                          initialValue: _settings.azaanTimingOptions
-                                  .contains(_settings.azaanTiming)
-                              ? _settings.azaanTiming
-                              : _settings.azaanTimingOptions.first,
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: NoorColors.cardGreen,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide:
-                                  BorderSide(color: NoorColors.gold.withValues(alpha: 0.6)),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide:
-                                  BorderSide(color: NoorColors.gold.withValues(alpha: 0.6)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide: const BorderSide(
-                                  color: NoorColors.emerald, width: 1.4),
-                            ),
-                          ),
-                          items: _settings.azaanTimingOptions
-                              .map((String key) => DropdownMenuItem<String>(
-                                    value: key,
-                                    child: Text(azaanTimingLabel(key),
-                                        style:
-                                            GoogleFonts.outfit(fontSize: 13)),
-                                  ))
-                              .toList(),
-                          onChanged: (String? key) {
-                            if (key == null) return;
-                            _settings.setAzaanTiming(key);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  // The per-prayer rows that used to stand here — a switch
-                  // and two rows of chips for each of the five — answered
-                  // the very question the bell at the end of that prayer's
-                  // row on Home answers: Azaan, Mute or Band, and how many
-                  // minutes before. Two doors to one choice is the "double"
-                  // a reader named, so they are gone; what stays here is
-                  // what Home does not ask — the gate every prayer passes
-                  // and the mode that says which clock may ring at all.
-                  _hint(
-                    'Which prayers ring, and how many minutes before, is '
-                    'chosen on Home — the bell at the end of each prayer’s '
-                    'row: Azaan, Mute or Band, with the timing chips right '
-                    'there.',
-                  ),
-                ],
                 if (!_settings.notificationsEnabled)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -1044,233 +650,11 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
           ),
 
-          // =============================== 3b. FAVOURITE MASJID ALERTS
-          const SectionHeader(title: 'Favourite masjid alerts'),
-          GoldCard(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Reminders at the Jamaat times of the masjids you have starred. '
-                  'The same switches live on each masjid’s own page.',
-                  style: GoogleFonts.outfit(
-                      fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.5),
-                ),
-                if (!_favLoaded)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text('Loading your favourites…',
-                        style: GoogleFonts.outfit(fontSize: 12, color: NoorColors.onGlassMuted)),
-                  )
-                else if (_favMasjids.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12, bottom: 6),
-                    child: Text(
-                      'No favourites yet — tap the star on a masjid to follow '
-                      'its board and get its Jamaat alerts.',
-                      style: GoogleFonts.outfit(fontSize: 12, color: NoorColors.onGlassMuted, height: 1.5),
-                    ),
-                  )
-                else
-                  for (final Masjid masjid in _favMasjids) ...<Widget>[
-                    Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      value: _settings.favAlertFor(masjid.id),
-                      activeThumbColor: NoorColors.emerald,
-                      title: Text(
-                        masjid.name.isEmpty ? 'Masjid' : masjid.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                            fontSize: 13, fontWeight: FontWeight.w600, color: NoorColors.onGlass),
-                      ),
-                      subtitle: Text(
-                        _settings.favAlertFor(masjid.id)
-                            ? 'Alerts on — ${_prayerSummary(masjid)}'
-                            : 'Alerts off for this masjid',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                            fontSize: 11, color: NoorColors.onGlassMuted, height: 1.4),
-                      ),
-                      onChanged: (bool enabled) async {
-                        _settings.setFavAlert(masjid.id, enabled);
-                        await NotificationService.scheduleFavouriteAlerts();
-                      },
-                    ),
-                  ],
-              ],
-            ),
-          ),
-
-          // ================================================ 4. AZAN SOUND
-          const SectionHeader(title: 'Azan sound'),
-          GoldCard(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-            child: Column(
-              children: <Widget>[
-                ...kAzanSounds.map((AzanSound sound) {
-                    final bool selected = _settings.azanSound == sound.key;
-                    final bool playing = AzanPlayer.instance.playingKey == sound.key;
-                    return InkWell(
-                      onTap: () async {
-                        final bool changed = _settings.azanSound != sound.key;
-                        _settings.setAzanSound(sound.key);
-                        // Android freezes a channel's sound the instant the
-                        // channel is created, so a new pick only lands once the
-                        // old channel has been dropped and rebuilt around it.
-                        if (changed) await NotificationService.applyAzanChannel();
-                        if (!mounted) return;
-                        // "None (silent)" has nothing to rehearse — see the
-                        // sheet's row for why the built-in stand-in was the
-                        // complaint wearing this screen's clothes. Quiet
-                        // whatever an earlier row started, and say so; the
-                        // only test that owes an answer on a silent profile
-                        // is "Test Azaan" below, which names itself.
-                        if (sound.key == 'silent') {
-                          // Said first, stopped second — the same order as
-                          // the sheet's row: the sentence is the row's
-                          // answer, and it must not wait on a platform
-                          // round-trip that can be slow or (under a faked
-                          // clock) never come back.
-                          _explainSilentPick();
-                          unawaited(AzanPlayer.instance.stop());
-                          return;
-                        }
-                        final bool started =
-                            await AzanPlayer.instance.preview(sound.key);
-                        // A row that selected a clip and then made no noise
-                        // is only trustworthy if it says which of the two
-                        // it did.
-                        if (!started) _explainSilenced();
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-                        child: Row(
-                          children: <Widget>[
-                            Icon(
-                              selected
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_off,
-                              size: 19,
-                              color: selected ? NoorColors.onGlassGold : NoorColors.onGlassMuted,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                sound.label,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 13,
-                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                  color: selected ? NoorColors.onGlass : NoorColors.onGlassMuted,
-                                ),
-                              ),
-                            ),
-                            // Same reason as the sheet's rows: a play button
-                            // on "None (silent)" promises a sound the row is
-                            // built not to make, so the mute sign carries the
-                            // row instead.
-                            Icon(
-                              sound.key == 'silent'
-                                  ? Icons.volume_off_outlined
-                                  : playing
-                                      ? Icons.stop_circle_outlined
-                                      : Icons.play_circle_outline,
-                              size: 22,
-                              color: playing ? NoorColors.onGlassGold : NoorColors.gold,
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                }),
-                const Divider(height: 1, color: NoorColors.gold),
-                _customSoundRow(),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: GradientButton(
-              label: _testPlaying ? 'Stop Azaan' : 'Test Azaan',
-              icon: _testPlaying ? Icons.stop_circle_outlined : Icons.volume_up_outlined,
-              onPressed: () async {
-                // "None (silent)" has no clip to test, so the button plays the
-                // built-in one instead of answering nothing at all — but a
-                // reader who hears an Azan and does not know why would read
-                // that as the reminder coming on. Say which is which.
-                if (_settings.azanSound == 'silent') {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      duration: const Duration(seconds: 6),
-                      content: Text(
-                        '“None (silent)” is selected, so your reminders stay '
-                        'silent — this is the built-in Azaan. Tap a clip above '
-                        'to make it the one that rings.',
-                      ),
-                    ),
-                  );
-                }
-                // On a phone this reader has silenced, not even the built-in
-                // clip is going to sound, and a button that explains nothing
-                // is how this row first came to look broken. Say so.
-                final bool started =
-                    await AzanPlayer.instance.preview(_settings.azanSound);
-                if (!started) _explainSilenced();
-              },
-            ),
-          ),
-          // The other half of "the volume keys reach this sound": inside the
-          // app the rocker already stops a recitation, but a clip the reader
-          // wants ringing from the *system* has to be in the phone's own
-          // ringtone list first — and an Azaan offered only as an alarm sound
-          // sits on a slider the rocker never moves. One tap copies the
-          // chosen clip in; the snackbar says where to pick it up.
-          if (defaultTargetPlatform == TargetPlatform.android)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: GradientButton(
-                label: 'Add to phone ringtone list',
-                icon: Icons.music_note_outlined,
-                onPressed: () => unawaited(_addToPhoneRingtone()),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-            child: Text(
-              'Each Azaan above ships inside the app, so the reminder plays the '
-              'full recitation instead of the phone’s default tone — with the '
-              'app closed, and at your own ring volume. Silence is still yours: on '
-              'silent or vibrate the reminder stays quiet rather than '
-              'overriding the choice, and “Test Azaan” says so instead of '
-              'ringing anyway. With the ringer up, “Test Azaan” plays exactly '
-              'that file at exactly that volume, and either volume key stops '
-              'it while it runs. Choosing “None” leaves the reminder as a '
-              'silent vibration, and “Test Azaan” then plays the built-in one '
-              'so the path can still be checked. “Add to phone ringtone list” '
-              'hands the chosen clip to the phone’s own ringtone list as well, '
-              'where Sound settings can pick it up as the phone’s ringtone. '
-              '“Choose a file…” is the last row of the list: point it at any '
-              'audio file on your phone and it becomes the Azaan every prayer '
-              'recites, copied into the app so it keeps ringing after a '
-              'reboot or a pulled SD card.',
-              style: GoogleFonts.outfit(
-                fontSize: 11,
-                color: NoorColors.muted,
-                height: 1.55,
-              ),
-            ),
-          ),
-
           // =============================== 4b. TEST THE REMINDER PATH
-          // "Test Azaan" only proves the clip plays while the app is open.
-          // This one also arms a copy for a minute later so the closed-app
-          // case — the only one a prayer time ever really faces — can be
-          // checked on demand instead of at Fajr.
+          // The bell’s own clip preview proves it plays while the app is
+          // open. This one also arms a copy for a minute later so the
+          // closed-app case — the only one a prayer time ever really faces —
+          // can be checked on demand instead of at Fajr.
           //
           // Every account gets it, and that is the point: the question this
           // answers — "will my phone actually wake for Fajr?" — belongs to

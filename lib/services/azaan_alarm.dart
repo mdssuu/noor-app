@@ -275,7 +275,7 @@ class AzaanAlarm {
   /// prompt than for a phone with no list to offer — so the native error
   /// code comes back as `code` (`denied`, `export-failed`, `unsupported`),
   /// with `added` false when the list already carried the title.
-  static Future<({bool added, String code})> addToPhoneRingtone(
+  static Future<({bool added, String code, String? uri})> addToPhoneRingtone(
     String sound,
     String title,
   ) async {
@@ -284,18 +284,19 @@ class AzaanAlarm {
         'addToPhoneRingtone',
         <String, Object?>{'sound': sound, 'title': title},
       );
-      if (placed is! Map) return (added: false, code: 'failed');
-      return (added: placed['added'] == true, code: 'ok');
+      if (placed is! Map) return (added: false, code: 'failed', uri: null);
+      final String? uri = placed['uri']?.toString();
+      return (added: placed['added'] == true, code: 'ok', uri: uri);
     } on MissingPluginException {
       // No Kotlin side at all — desktop, web, tests, iOS. Not a broken tap:
       // a platform that keeps its ringtone list to itself.
-      return (added: false, code: 'unsupported');
+      return (added: false, code: 'unsupported', uri: null);
     } on PlatformException catch (error) {
       // Loud for `bad-args` like [_call]'s own habit; every other code is
       // returned to the snackbar, which has the sentence for it.
       debugPrint('Noor ▸ azaan alarm ▸ addToPhoneRingtone failed '
           '[${error.code}]: ${error.message}');
-      return (added: false, code: error.code);
+      return (added: false, code: error.code, uri: null);
     }
   }
 

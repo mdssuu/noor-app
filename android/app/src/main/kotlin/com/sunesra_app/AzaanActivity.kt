@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -54,29 +56,51 @@ class AzaanActivity : Activity() {
         }
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
 
-        // A launch that lands after the clip has run out must not leave a card
-        // sitting on the lock screen with nothing behind it.
-        if (!AzaanAudio.isPlaying()) {
-            finish()
-            return
-        }
-
         setContentView(buildCard(intent.getStringExtra(EXTRA_TITLE)))
         AzaanAudio.endListeners.add(onPlaybackEnded)
         // Proof in the log that the window the volume keys need is actually up
         // — this line, and only this line, is what makes the fix verifiable.
         Log.i(TAG, "recitation screen up (over the lock screen if it was off)")
+
+        // The screen is shown *before* asking whether anything is playing, and
+        // that ordering is the fix behind "the Azaan sounds but no popup comes".
+        //
+        // This window is opened by the card's full-screen intent, and the card
+        // is posted by the receiver *before* it starts [AzaanPlaybackService] —
+        // so at the moment this activity is created `AzaanAudio.isPlaying()` is
+        // routinely still false. Finishing on that answer closed the popup
+        // before it had ever been drawn, every time, and the recitation then
+        // ran with no window of ours on the lock screen at all. The old code
+        // read a race as a fact.
+        //
+        // A launch that really does land after the clip has run out still has
+        // to go away; that is what the watchdog is for — if nothing is sounding
+        // by the time the clip would certainly have begun, there is nothing to
+        // control.
+        watchdog.postDelayed(absentCheck, ABSENCE_GRACE_MS)
     }
+
+    /** Nothing ever started under this window — close it, silently. */
+    private val absentCheck = Runnable {
+        if (!AzaanAudio.isPlaying() && !isFinishing) {
+            Log.i(TAG, "no recitation started — closing the screen")
+            finish()
+        }
+    }
+
+    private val watchdog = Handler(Looper.getMainLooper())
 
     override fun onResume() {
         super.onResume()
-        // The clip can be brought down from under this screen — the activity
-        // in front takes the volume key too — so a return to it with nothing
-        // playing must not leave a stale card behind.
-        if (!AzaanAudio.isPlaying()) finish()
+        // Deliberately no "finish if nothing is playing" here. `onResume`
+        // lands in the same instant as `onCreate` for this launch, so it read
+        // the same premature false and closed the popup the fix above opens.
+        // The watchdog and the clip's own end listener answer the same case
+        // with an answer that is actually about the clip.
     }
 
     override fun onDestroy() {
+        watchdog.removeCallbacks(absentCheck)
         AzaanAudio.endListeners.remove(onPlaybackEnded)
         super.onDestroy()
     }
@@ -160,6 +184,15 @@ class AzaanActivity : Activity() {
     companion object {
         private const val TAG = "Noor/AzanActivity"
         const val EXTRA_TITLE = "title"
+
+        /**
+         * How long the screen waits for the clip the card promised.
+         *
+         * Long enough for a service start and a decoder handshake on a busy
+         * phone, short enough that a launch which landed after the clip ended
+         * does not leave a dead window on the lock screen.
+         */
+        private const val ABSENCE_GRACE_MS = 6_000L
 
         /** One launch style for every caller, so a repeat never stacks. */
         fun launch(context: android.content.Context, title: String?): Intent =

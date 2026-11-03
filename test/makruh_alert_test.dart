@@ -40,6 +40,51 @@ void main() {
     );
   });
 
+  test('the sunrise banner owns its own id, clear of every sweep', () {
+    // Two windows, two slots: arming the sunrise banner must never cancel the
+    // zawal one, and neither may land in a range another pass sweeps.
+    expect(
+      app.NotificationService.makruhSunriseId,
+      isNot(app.NotificationService.makruhId),
+    );
+    expect(
+      app.NotificationService.makruhSunriseId,
+      greaterThanOrEqualTo(kNotifiablePrayers.length),
+      reason: 'ids 0..4 belong to the five Azaan reminders',
+    );
+    expect(
+      app.NotificationService.makruhSunriseId,
+      lessThan(1000),
+      reason: 'ids from 1000 up are cancelled on every favourite rebuild',
+    );
+    expect(app.NotificationService.makruhSunriseId, isNot(6),
+        reason: '6 is the silent-Azaan probe');
+  });
+
+  test('the sunrise banner names its own window and its own end', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final AppSettings settings = AppSettings.instance;
+    await settings.useProfile('makruh-sunrise-alert');
+
+    final DateTime start = DateTime(2026, 10, 25, 6, 20);
+    final DateTime end = DateTime(2026, 10, 25, 6, 35);
+
+    settings.setTimeFormat('12');
+    expect(
+      app.NotificationService.makruhSunriseText(
+        start: start,
+        end: end,
+        settings: settings,
+      ),
+      (
+        title: 'Prohibited time 06:20 AM – 06:35 AM',
+        body:
+            'The sun is rising — salah is prohibited until it has fully risen at 06:35 AM.',
+      ),
+      reason: 'the reader is told the window and when it closes',
+    );
+  });
+
   test('the banner names the window the red line on Home prints', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     final AppSettings settings = AppSettings.instance;

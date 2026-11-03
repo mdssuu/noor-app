@@ -43,6 +43,48 @@ void main() {
     });
   });
 
+  group('the star itself chooses the one Azaan masjid', () {
+    test('the last star wins, and un-starring it hands the choice back',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+      await settings.useProfile('star-selects-uid');
+      expect(settings.todayBoardId, isEmpty);
+
+      // Star A — A now owns both the Today card and the Azaan.
+      settings.setStarredSelection('masjid-a', true);
+      expect(settings.todayBoardId, 'masjid-a');
+
+      // Star B — exactly one masjid rings, and it is the one just starred.
+      settings.setStarredSelection('masjid-b', true);
+      expect(settings.todayBoardId, 'masjid-b');
+
+      // Un-starring a masjid that is not chosen leaves the choice alone.
+      settings.setStarredSelection('masjid-a', false);
+      expect(settings.todayBoardId, 'masjid-b');
+
+      // Un-starring the chosen one clears it; the automatic answer (nearest
+      // starred) takes over rather than leaving a dead id behind.
+      settings.setStarredSelection('masjid-b', false);
+      expect(settings.todayBoardId, isEmpty);
+    });
+
+    test('the one-masjid choice still belongs to the account', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('star-choice-a');
+      settings.setStarredSelection('masjid-a', true);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      await settings.useProfile('star-choice-b');
+      expect(settings.todayBoardId, isEmpty);
+
+      await settings.useProfile('star-choice-a');
+      expect(settings.todayBoardId, 'masjid-a');
+    });
+  });
+
   group('the on/off switch belongs to one account', () {
     test('switching a masjid off in one account never reaches another', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});

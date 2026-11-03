@@ -58,16 +58,11 @@ void main() {
         ':${d.inSeconds.remainder(60).toString().padLeft(2, '0')}';
   }
 
-  /// The name and glyph the noon prayer wears on [when]'s weekday — Friday's
-  /// is Jummah, the rest of the week Dhuhr.
-  ///
-  /// These expectations follow the clock the hero itself reads rather than
-  /// pinning one weekday, so the suite stays honest on whichever day it runs.
-  String noonLabel(DateTime when) =>
-      when.weekday == DateTime.friday ? 'Juma' : 'Dhuhr';
-  IconData noonIcon(DateTime when) => when.weekday == DateTime.friday
-      ? Icons.mosque_outlined
-      : Icons.wb_sunny_outlined;
+  /// The name and glyph the noon prayer wears in the hero — Dhuhr on every
+  /// weekday. Friday adds Jummah only in the hero's Jamaat line and as the
+  /// times card's last row; it never renames the prayer itself.
+  String noonLabel(DateTime when) => 'Dhuhr';
+  IconData noonIcon(DateTime when) => Icons.wb_sunny_outlined;
 
   group('the official end of a prayer', () {
     test('is the calculated start of whatever follows it', () {
@@ -116,6 +111,26 @@ void main() {
           LocalPrayerTimes(times: const <String, DateTime>{},
               fajrTomorrow: DateTime(2026, 10, 13, 5, 18));
       expect(empty.makruhWindow, isNull);
+    });
+
+    test('the sunrise makruh window is the fifteen minutes after sunrise', () {
+      final DateTime sunrise = DateTime(2026, 10, 12, 6, 20);
+      final LocalPrayerTimes day = LocalPrayerTimes(
+        times: <String, DateTime>{'sunrise': sunrise},
+        fajrTomorrow: DateTime(2026, 10, 13, 5, 18),
+      );
+
+      final ({DateTime start, DateTime end}) window =
+          day.makruhSunriseWindow!;
+      expect(window.start, sunrise,
+          reason: 'the prohibition opens with the sun');
+      expect(window.end, sunrise.add(const Duration(minutes: 15)),
+          reason: 'until the sun has cleared the horizon');
+
+      final LocalPrayerTimes empty =
+          LocalPrayerTimes(times: const <String, DateTime>{},
+              fajrTomorrow: DateTime(2026, 10, 13, 5, 18));
+      expect(empty.makruhSunriseWindow, isNull);
     });
   });
 
@@ -278,6 +293,41 @@ void main() {
       await tearDownWidgets(tester);
     });
 
+    testWidgets('carries the sunrise window during the sunrise makruh',
+        (WidgetTester tester) async {
+      final AppSettings settings = await settingsWith('12');
+      final LocalPrayerTimes day =
+          settings.compute(latitude: lat, longitude: lng);
+      final ({DateTime start, DateTime end}) window = day.makruhSunriseWindow!;
+      final String line =
+          'Makruh ${settings.format(window.start)} – ${settings.format(window.end)}';
+
+      Future<void> showAt(DateTime now) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: NextPrayerHero(
+              latitude: lat,
+              longitude: lng,
+              areaName: 'Mumbai',
+              debugNow: now,
+            ),
+          ),
+        ));
+      }
+
+      // That same prohibition, at the other end of the morning: it opens at
+      // sunrise and closes once the sun has cleared the horizon.
+      await showAt(window.start.add(const Duration(minutes: 1)));
+      expect(find.text(line), findsOneWidget,
+          reason: 'the sunrise makruh is announced like the zawal one');
+      await tearDownWidgets(tester);
+
+      await showAt(window.end);
+      expect(find.textContaining('Makruh'), findsNothing,
+          reason: 'the line goes the moment the window closes');
+      await tearDownWidgets(tester);
+    });
+
     testWidgets('through the morning the card counts the next prayer, not Sunrise',
         (WidgetTester tester) async {
       final AppSettings settings = await settingsWith('12');
@@ -303,8 +353,7 @@ void main() {
           reason: 'no one has a namaz to finish at sunrise');
       expect(find.text('Next prayer in'), findsOneWidget);
       expect(find.text(noonLabel(during)), findsOneWidget,
-          reason: 'the morning timer belongs to the prayer actually due — '
-              'printed as Jummah on a Friday, Dhuhr the rest of the week');
+          reason: 'the morning timer belongs to the prayer actually due');
       expect(find.byIcon(noonIcon(during)), findsWidgets,
           reason: 'wearing that prayer’s own glyph');
       expect(find.text(tick(day.times['dhuhr']!.difference(during))),
@@ -354,7 +403,7 @@ void main() {
       final DateTime end = day.times['asr']!;
       expect(find.text('Now time is'), findsOneWidget);
       expect(find.text(noonLabel(during)), findsOneWidget,
-          reason: 'the running prayer is Jummah on a Friday, Dhuhr otherwise');
+          reason: 'the running prayer keeps its own name on every weekday');
       expect(find.byIcon(noonIcon(during)), findsWidgets,
           reason: 'the running prayer wears its own day glyph');
       expect(find.text(tick(end.difference(during))), findsOneWidget,

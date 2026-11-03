@@ -146,17 +146,21 @@ const List<String> kNotifiablePrayers = <String>['fajr', 'dhuhr', 'asr', 'maghri
 /// The three states a Home bell can hold, asked of the reader in the bell's
 /// dialog (Azaan / Mute / Band):
 ///
-/// * `azan` — the banner *and* the recitation, the full reminder.
-/// * `silent` — the banner only, with no sound of any kind: the phone
-///   still tells you, it just does not say the azan out loud.
+/// * `azan` — the banner *and* the recitation, the full reminder. The banner
+///   is part of this answer, not a separate option: a recitation nobody can
+///   see is a clip with no card and no way to stop it.
+/// * `silent` — the banner only, with no sound of its own from the
+///   recitation: the phone still tells you, it just does not say the azan
+///   out loud. This is what the dialog calls **Mute**, and it already
+///   carries the notification — with the phone's own notification sound.
 /// * `off` — nothing at all, not even the banner.
 const String kBellAzan = 'azan';
 const String kBellSilent = 'silent';
 const String kBellOff = 'off';
 
 /// The states the bell's dialog offers, in the reader's own words — the first
-/// the fullest, the last the quietest, and the one in force gets ticked when
-/// the dialog opens.
+/// the fullest, the second the quiet one that still notifies, the third
+/// nothing — and the one in force gets ticked when the dialog opens.
 const List<String> kBellModes = <String>[kBellAzan, kBellSilent, kBellOff];
 
 /// How many minutes before a prayer the Azan reminder fires.
@@ -231,6 +235,15 @@ const String kFavModeOffset = 'offset';
 /// Preference prefix for the per-masjid alert switch. The masjid id sits
 /// between this and the `::<uid>` scope suffix `AppSettings._key` appends.
 const String kFavAlertKeyPrefix = 'favalert::';
+
+/// Preference prefix for a masjid's own Azaan clip. The masjid id sits
+/// between this and the `::<uid>` scope suffix [AppSettings._key] appends.
+///
+/// An absent entry is not "silent": it means the masjid has never been given
+/// a voice of its own, so the profile's clip answers ([AppSettings.
+/// azanSoundForMasjid]). One reader can follow a Makkah-reciting masjid and
+/// an alafasy one across the road and hear each of them in its own voice.
+const String kMasjidAzanKeyPrefix = 'azansound::';
 
 /// When the Azaan itself is allowed to sound.
 ///
@@ -511,6 +524,23 @@ class LocalPrayerTimes {
     if (dhuhr == null) return null;
     return (start: dhuhr.subtract(const Duration(minutes: 30)), end: dhuhr);
   }
+
+  /// Today's sunrise makruh window: from sunrise until the sun has cleared
+  /// the horizon — the ten-to-fifteen minutes after sunrise in which salah
+  /// is prohibited.
+  ///
+  /// Fifteen minutes is the conservative end of the range the boards and
+  /// fiqh manuals give ("until the sun is a spear's length up"); it is
+  /// deliberately its own window rather than [makruhWindow], because the
+  /// zenith window is a different prohibition at a different hour.
+  ({DateTime start, DateTime end})? get makruhSunriseWindow {
+    final DateTime? sunrise = times['sunrise'];
+    if (sunrise == null) return null;
+    return (
+      start: sunrise,
+      end: sunrise.add(const Duration(minutes: 15)),
+    );
+  }
 }
 
 /// adhan_dart builds every prayer time with `DateTime.utc(y, m, d, hh, mm)`
@@ -694,7 +724,8 @@ class AppSettings extends ChangeNotifier {
   /// default is one recitation per prayer, at the Jamaat the user follows.
   String _azaanTiming = kAzaanTimingDefault;
 
-  /// Starred masjid id the Today card quotes; `''` = nearest starred.
+  /// Starred masjid id the Today card quotes — and the one masjid whose
+  /// Jamaat the Azaan follows; `''` = nearest starred.
   String _todayBoard = '';
 
   /// Language the daily reading's translation is printed in — see
@@ -746,6 +777,12 @@ class AppSettings extends ChangeNotifier {
   /// out rather than in.
   final Map<String, bool> _favAlerts = <String, bool>{};
 
+  /// masjid id → the Azaan clip its own reminders recite.
+  ///
+  /// Absent means the profile's global pick, so a masjid nobody has answered
+  /// for keeps behaving exactly as it did before this map existed.
+  final Map<String, String> _masjidAzan = <String, String>{};
+
   // ------------------------------------------------------------ accessors
   CalcMethod get method => kCalcMethods.firstWhere(
         (CalcMethod m) => m.key == _method,
@@ -776,8 +813,9 @@ class AppSettings extends ChangeNotifier {
   /// Path to the user's own Azaan file, or `''` when they have not picked one.
   String get customAzanPath => _customAzanPath;
 
-  /// Starred masjid the Today card quotes by name, or `''` for the automatic
-  /// answer (whichever starred masjid is nearest).
+  /// Starred masjid the Today card quotes by name — and the one masjid the
+  /// Azaan follows — or `''` for the automatic answer (whichever starred
+  /// masjid is nearest).
   String get todayBoardId => _todayBoard;
 
   /// Which rendering of the daily reading is on show: `urdu`, `english` or
@@ -832,6 +870,33 @@ class AppSettings extends ChangeNotifier {
   String favModeFor(String prayer) => _favModes[prayer] ?? kFavModeAt;
   bool favAlertFor(String masjidId) => _favAlerts[masjidId] ?? true;
 
+  /// The clip [masjidId]'s reminders recite.
+  ///
+  /// A masjid with no answer of its own inherits the profile's pick, so the
+  /// per-masjid choice is an override rather than a second setting every
+  /// reader has to fill in. An empty [masjidId] is the automatic/nearest
+  /// answer, which has no id to file a voice under — it gets the profile's.
+  String azanSoundForMasjid(String masjidId) {
+    if (masjidId.isEmpty) return _azanSound;
+    return _masjidAzan[masjidId] ?? _azanSound;
+  }
+
+  /// Gives one masjid its own Azaan clip, or clears the override when [key]
+  /// is empty. The profile's global choice is left untouched either way.
+  void setMasjidAzanSound(String masjidId, String key) {
+    if (masjidId.isEmpty) return;
+    if (key.isEmpty) {
+      _masjidAzan.remove(masjidId);
+      notifyListeners();
+      _put((SharedPreferences p) => p.remove(_key('$kMasjidAzanKeyPrefix$masjidId')));
+      return;
+    }
+    _masjidAzan[masjidId] = key;
+    notifyListeners();
+    _put((SharedPreferences p) =>
+        p.setString(_key('$kMasjidAzanKeyPrefix$masjidId'), key));
+  }
+
   /// The Home bell's current state for [prayer].
   ///
   /// A prayer switched off is always [kBellOff] — that switch is the same
@@ -840,7 +905,7 @@ class AppSettings extends ChangeNotifier {
   /// for a bell nobody has ever chosen: silence until somebody says
   /// otherwise. Otherwise an explicitly picked mode wins and survives the
   /// Settings screen switching reminders off and back on (the reader gets
-  /// their `azan`/`silent` choice back). Only a prayer switched on in
+  /// their choice back). Only a prayer switched on in
   /// Settings *without* a pick of its own still derives from what the
   /// profile already said: a global `silent` sound means a quiet app, so
   /// it lands on [kBellSilent]; any other sound lands on [kBellAzan].
@@ -1039,14 +1104,24 @@ class AppSettings extends ChangeNotifier {
         // A stored mode only counts if it is one of the three; anything
         // else — stale, or a profile being left behind — clears the slot
         // so [bellModeFor] derives again instead of trusting garbage.
+        //
+        // `notification_with_mute` was a fourth state before Mute already
+        // carried the banner. A profile that chose it asked for a card
+        // without sound, which is exactly [kBellSilent], so it is migrated
+        // rather than dropped — and written back, so the old key cannot
+        // return on the next read.
         final String mode = prefs.getString(_key('bellmode_$key')) ?? '';
-        if (kBellModes.contains(mode)) {
+        if (mode == 'notification_with_mute') {
+          _bellModes[key] = kBellSilent;
+          await prefs.setString(_key('bellmode_$key'), kBellSilent);
+        } else if (kBellModes.contains(mode)) {
           _bellModes[key] = mode;
         } else {
           _bellModes.remove(key);
         }
       }
       _loadFavAlerts(prefs);
+      _loadMasjidAzan(prefs);
       _loaded = true;
     } catch (error) {
       debugPrint('Noor ▸ settings load failed: $error');
@@ -1069,6 +1144,22 @@ class AppSettings extends ChangeNotifier {
       if (end <= kFavAlertKeyPrefix.length) continue;
       _favAlerts[stored.substring(kFavAlertKeyPrefix.length, end)] =
           prefs.getBool(stored) ?? true;
+    }
+  }
+
+  /// Picks each masjid's own Azaan clip out of the raw key set — the same
+  /// open-ended, prefix-matched shape as [_loadFavAlerts], and cleared first
+  /// for the same reason: a profile switch must not inherit another's voices.
+  void _loadMasjidAzan(SharedPreferences prefs) {
+    _masjidAzan.clear();
+    final String suffix = '::$_scope';
+    for (final String stored in prefs.getKeys()) {
+      if (!stored.startsWith(kMasjidAzanKeyPrefix) || !stored.endsWith(suffix)) continue;
+      final int end = stored.length - suffix.length;
+      if (end <= kMasjidAzanKeyPrefix.length) continue;
+      final String value = prefs.getString(stored) ?? '';
+      if (value.isEmpty) continue;
+      _masjidAzan[stored.substring(kMasjidAzanKeyPrefix.length, end)] = value;
     }
   }
 
@@ -1127,6 +1218,21 @@ class AppSettings extends ChangeNotifier {
     _todayBoard = masjidId;
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kTodayBoard), masjidId));
+  }
+
+  /// Keeps the one-masjid Azaan choice in step with the star list.
+  ///
+  /// A star is a choice: starring a masjid makes it the board the Today card
+  /// quotes *and* the one whose Jamaat the Azaan follows — the last star
+  /// wins, so there is never a second masjid ringing. Un-starring that masjid
+  /// clears the pick so the automatic answer (nearest starred) takes over,
+  /// while un-starring any other masjid leaves the chosen one alone.
+  void setStarredSelection(String masjidId, bool starred) {
+    if (starred) {
+      setTodayBoard(masjidId);
+    } else if (_todayBoard == masjidId) {
+      setTodayBoard('');
+    }
   }
 
   /// Puts the daily reading's translation into [key] (`urdu`, `english` or

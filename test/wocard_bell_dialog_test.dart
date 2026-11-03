@@ -15,12 +15,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// knock arrives — and it has moved in here, one prayer at a time, because
 /// that is the only scope the offset has ever had: a reader who wants Fajr
 /// five minutes early and Isha on the dot has always been able to store
-/// exactly that, prayer by prayer. What did *not* move in is the clip: it is
-/// one global answer (the bells gate *whether* a prayer recites, never what
-/// it recites), so its door stays in Settings and a pin below keeps it there.
+/// exactly that, prayer by prayer.
+///
+/// The clip moved in too, but scoped to the *masjid*: the voice belongs to
+/// the board whose row the bell sits on, so two masjids can recite two
+/// different Azaans. Settings keeps only what is the same for every masjid.
 ///
 /// The other half of the move — that the dialog now answers in place instead
-/// of closing on the first tap — is what lets one open serve both questions.
+/// of closing on the first tap — is what lets one open serve every question.
 ///
 /// The clip's own rehearsal lives in `wocard_azan_sound_test.dart`, because
 /// a player first created in one test can never answer a later one.
@@ -116,12 +118,12 @@ void main() {
       findsOneWidget,
     );
 
-    // The clip does not belong here: it is one answer for every prayer, so
-    // the dialog that only one prayer can open must not offer it.
+    // The clip does belong here now: each masjid keeps its own voice, and
+    // the dialog is the only door that knows which masjid it is quoting.
     for (final AzanSound sound in kAzanSounds) {
-      expect(find.text(sound.label), findsNothing, reason: sound.label);
+      expect(find.text(sound.label), findsOneWidget, reason: sound.label);
     }
-    expect(find.text('Choose a file… (your own Azaan)'), findsNothing);
+    expect(find.text('Choose a file… (your own Azaan)'), findsOneWidget);
 
     // Closing leaves the bell exactly as it was — dismissing the question is
     // not an answer.
@@ -266,23 +268,29 @@ void main() {
     expect(card, isNot(contains('Azaan sound & timing')),
         reason: 'the tune button\'s own words, and the last place they may '
             'live is nowhere');
-    expect(card, isNot(contains('pickAudioFile')),
-        reason: 'the clip door moved to Settings, where the global answer '
-            'actually lives');
+    expect(card, contains('pickAudioFile'),
+        reason: 'the clip door lives in the bell dialog, beside the masjid '
+            'whose voice it chooses');
   });
 
   test('the own-file door now lives where the other clips do', () {
-    final String settings = File('lib/screens/settings_screen.dart').readAsStringSync();
-    expect(settings, contains('AzaanAlarm.pickAudioFile()'),
+    final String card = File('lib/today_prayer_card.dart').readAsStringSync();
+    expect(card, contains('AzaanAlarm.pickAudioFile()'),
         reason: 'the own-file row opens the picker on the Kotlin side, '
             'which is what copies the bytes where the alarm can reopen them.');
-    expect(settings, contains('previewFile(path)'),
+    expect(card, contains('previewFile(path)'),
         reason: 'the rehearsal must play the *copied* file — that is exactly '
             'what tomorrow’s alarm plays.');
-    expect(settings, contains('Choose a file… (your own Azaan)'),
+    expect(card, contains('Choose a file… (your own Azaan)'),
         reason: 'the row reads as the door until there is a file to name, '
             'and as the file\'s name once there is — a second pick has to be '
             'visibly a replacement.');
+
+    final String settings =
+        File('lib/screens/settings_screen.dart').readAsStringSync();
+    expect(settings, isNot(contains('pickAudioFile')),
+        reason: 'the duplicate clip door is gone from Settings — the bell is '
+            'the only place a clip is chosen now.');
 
     final String player =
         File('lib/services/azan_player.dart').readAsStringSync();
@@ -292,12 +300,12 @@ void main() {
             'find nothing to play.');
 
     final String main = File('lib/main.dart').readAsStringSync();
-    expect(main, contains('static String _bellRaw(String prayer)'),
+    expect(main, contains('static String _bellRaw(String prayer, [String masjidId = \'\'])'),
         reason: 'the alarm carries a file name, and a custom clip names the '
             'file copied when it was picked — not a bundled raw resource.');
-    expect(main, contains('raw: _bellRaw(key)'),
-        reason: 'every scheduling site has to carry that name, or the alarm '
-            'fires with the old clip.');
+    expect(main, contains('raw: _bellRaw(key, masjidId)'),
+        reason: 'every scheduling site has to carry that name and the masjid '
+            'whose voice it is, or the alarm fires with the old clip.');
     expect(main,
         contains('if (sound.key == kCustomAzanKey) return kCustomAzanKey;'),
         reason: 'the branch that turns the key into that file name is only '

@@ -107,4 +107,34 @@ void main() {
     );
     expect(prefs.containsKey('bellmode_isha'), isFalse);
   });
+
+  test('the dialog offers three answers, and only three', () {
+    expect(kBellModes, <String>[kBellAzan, kBellSilent, kBellOff]);
+    expect(kBellModes, isNot(contains('notification_with_mute')));
+  });
+
+  test('a stored notification_with_mute becomes Mute, keeping its card',
+      () async {
+    // The fourth state the dialog used to offer. Mute already carries the
+    // banner, so the two were the same answer under two names; a profile
+    // that picked the old one must land on Mute — not on silence.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      AppSettings.scopedKeyFor('bellmode_fajr', 'anon'):
+          'notification_with_mute',
+      AppSettings.scopedKeyFor('notifyon_fajr', 'anon'): true,
+    });
+    final AppSettings settings = AppSettings.instance;
+    await settings.load();
+
+    expect(settings.bellModeFor('fajr'), kBellSilent);
+    expect(settings.notifyOnFor('fajr'), isTrue,
+        reason: 'the reader still gets the notification');
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(AppSettings.scopedKeyFor('bellmode_fajr', 'anon')),
+      kBellSilent,
+      reason: 'migrated once and written back, so the old key cannot return',
+    );
+  });
 }

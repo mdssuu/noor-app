@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -7,6 +9,8 @@ import 'app_look.dart';
 import 'app_settings.dart';
 import 'main.dart';
 import 'screens/home_extras.dart' show shareTodayTimes;
+import 'services/azaan_alarm.dart';
+import 'services/azan_player.dart';
 
 /// "Today's Prayer Times" card — computed on device with `adhan_dart`.
 ///
@@ -129,35 +133,31 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
 
     final AppSettings settings = AppSettings.instance;
     final DateTime now = widget.debugNow ?? DateTime.now();
+    final String boardId = widget.board?.id ?? '';
+    if (boardId.isEmpty) {
+      // No board quoted — Jummah follows the same rule as other prayers.
+    }
     final LocalPrayerTimes day =
         settings.compute(latitude: _lat, longitude: _lng, day: now);
 
-    // Friday's noon prayer is Jummah. It is the same prayer on the same
-    // calculated clock — the Awwal and the official end below never move —
-    // but the reader reads it by its Friday name, quotes the board's Juma
-    // cell as its Jamaat, and wears its own glyph rather than the noon sun.
-    final bool friday = now.weekday == DateTime.friday;
-
     setState(() {
       _entries = <_Entry>[
-        _Entry('fajr', 'Fajr', day.times['fajr']!, Icons.dark_mode_outlined,
-            day.officialEnd('fajr')),
+        _Entry('fajr', 'Fajr', day.times['fajr']!,
+            Icons.dark_mode_outlined, day.officialEnd('fajr')),
         _Entry('sunrise', 'Sunrise', day.times['sunrise']!,
             Icons.wb_sunny_outlined, day.officialEnd('sunrise')),
-        _Entry(
-            'dhuhr',
-            friday ? prayerByKey('juma').label : 'Dhuhr',
-            day.times['dhuhr']!,
-            friday
-                ? prayerByKey('juma').icon
-                : Icons.light_mode_outlined,
-            day.officialEnd('dhuhr')),
+        _Entry('dhuhr', 'Dhuhr', day.times['dhuhr']!,
+            Icons.light_mode_outlined, day.officialEnd('dhuhr')),
         _Entry('asr', 'Asr', day.times['asr']!, Icons.wb_twilight_outlined,
             day.officialEnd('asr')),
         _Entry('maghrib', 'Maghrib', day.times['maghrib']!,
             Icons.nights_stay_outlined, day.officialEnd('maghrib')),
         _Entry('isha', 'Isha', day.times['isha']!, Icons.dark_mode_outlined,
             day.officialEnd('isha')),
+        // The big line is the board's Juma cell (through [_jamaat]). Awwal
+        // and Ends are not shown for Jummah.
+        _Entry('juma', prayerByKey('juma').label, day.times['dhuhr']!,
+            prayerByKey('juma').icon),
       ];
       _next = _nextEntry(day, now);
     });
@@ -165,42 +165,31 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
 
   /// The board's own Jamaat time for [key], or `''` when it has none.
   ///
-  /// A prayer the board does not publish arrives as `--:--` (a typo'd
-  /// `13:60` is refused just the same), so the cell falls back to the
-  /// calculated time rather than printing a placeholder at the reader.
-  ///
-  /// Friday's answer for `dhuhr` is the board's **Juma** cell: the masjid's
-  /// Friday clock, not its daily noon one. A board that never filled a Juma
-  /// time therefore stays on the calculated clock — quoting its everyday
-  /// Dhuhr as the Jummah would be a guess dressed as a fact.
+  /// For `juma` the board's Juma cell is used. If missing, the row falls back
+  /// to the calculated Dhuhr clock.
   String _jamaat(String key) {
     final Masjid? board = widget.board;
     if (board == null) return '';
 
-    final bool friday =
-        (widget.debugNow ?? DateTime.now()).weekday == DateTime.friday;
-    final String cell = key == 'dhuhr' && friday ? 'juma' : key;
-    final String stored = board.timeFor(cell);
-    return NotificationService.parseClockTime(stored) == null ? '' : stored;
+    final String stored = board.timeFor(key);
+    if (NotificationService.parseClockTime(stored) != null) {
+      return stored;
+    }
+    if (key == 'juma') {
+      final String dhuhr = board.timeFor('dhuhr');
+      return NotificationService.parseClockTime(dhuhr) != null ? dhuhr : '';
+    }
+    return '';
   }
 
-  /// The name today gives [key] — Friday's Dhuhr is Jummah.
-  ///
-  /// The row already prints it that way; a dialog opened from that row must
-  /// answer in the same words, or the reader meets two names for the one
-  /// prayer they just tapped.
-  String _labelFor(String key) {
-    final bool friday =
-        (widget.debugNow ?? DateTime.now()).weekday == DateTime.friday;
-    return key == 'dhuhr' && friday
-        ? prayerByKey('juma').label
-        : prayerByKey(key).label;
-  }
+  /// The name a row carries — Jummah keeps its own name, and the five daily
+  /// prayers keep theirs on every weekday, Friday included.
+  String _labelFor(String key) => prayerByKey(key).label;
 
   /// The three-state bell at the end of a prayer's row.
   ///
   /// The glyph *is* the state: the active bell is a full azan (banner and
-  /// recitation), the plain bell is the banner without any sound, and the
+  /// recitation), the plain bell is the banner without the recitation, and the
   /// crossed one means nothing at all. Tapping no longer walks the ring
   /// azan → silent → off on its own — a silent tap is exactly the moment a
   /// reader ends up with an azaan they never chose. Instead it *asks*, and
@@ -269,6 +258,10 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
         final AppSettings settings = AppSettings.instance;
         final String current = settings.bellModeFor(key);
         final int offset = settings.notifyOffsetFor(key);
+        final String boardId = widget.board?.id ?? '';
+        final String currentClip = settings.azanSoundForMasjid(boardId);
+        final bool ownMissing = settings.customAzanPath.isEmpty ||
+            !File(settings.customAzanPath).existsSync();
 
         return AlertDialog(
           backgroundColor: NoorColors.cream,
@@ -302,6 +295,11 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                     current,
                     () {
                       settings.setBellMode(key, kBellAzan);
+                      // The card the Azaan arrives with is a notification: a
+                      // reader who has switched those off would hear the
+                      // recitation and see nothing. Ask here, where the
+                      // promise is made, and name the switch if it stays off.
+                      unawaited(_ensureNotifications());
                       _armReschedule();
                       setDialog(() {});
                     },
@@ -330,6 +328,71 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                       setDialog(() {});
                     },
                   ),
+
+                  const SizedBox(height: 14),
+
+                  // ------------------------------------------------- clip
+                  // The voice belongs to the masjid whose row this bell sits
+                  // on, not to the whole profile: two masjids across the road
+                  // may recite two different Azaans, and this is where each
+                  // one is chosen. With no board quoted there is no masjid to
+                  // file it under, so the choice becomes the profile's own.
+                  Text(
+                    boardId.isEmpty
+                        ? 'Azaan clip'
+                        : 'Azaan clip for this masjid',
+                    style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: NoorColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    boardId.isEmpty
+                        ? 'Used by every prayer until a masjid has a clip '
+                            'of its own.'
+                        : 'Only this masjid’s reminders recite it. Another '
+                            'masjid can keep its own.',
+                    style: GoogleFonts.outfit(
+                      fontSize: 11.5,
+                      color: NoorColors.onGlassMuted,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  for (final AzanSound sound in kAzanSounds)
+                    _clipChoice(
+                      clipKey: sound.key,
+                      name: sound.label,
+                      current: currentClip,
+                      onTap: () => unawaited(_pickClip(sound.key, setDialog)),
+                    ),
+                  _clipChoice(
+                    clipKey: kCustomAzanKey,
+                    name: ownMissing
+                        ? 'Choose a file… (your own Azaan)'
+                        : customAzanName(settings.customAzanPath),
+                    current: ownMissing ? '' : currentClip,
+                    onTap: () => unawaited(_chooseOwnClip(setDialog)),
+                  ),
+                  if (defaultTargetPlatform == TargetPlatform.android)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => unawaited(_exportRingtone(currentClip)),
+                        icon: const Icon(Icons.music_note_outlined,
+                            size: 16, color: NoorColors.emeraldDeep),
+                        label: Text(
+                          'Add to phone ringtone list',
+                          style: GoogleFonts.outfit(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: NoorColors.emeraldDeep,
+                          ),
+                        ),
+                      ),
+                    ),
 
                   const SizedBox(height: 14),
 
@@ -377,8 +440,10 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                   const SizedBox(height: 8),
                   Text(
                     'Each prayer keeps its own minutes, so this pick is for '
-                    'this bell alone. The Azaan clip itself is chosen in '
-                    'Settings.',
+                    'this bell alone. The clip above belongs to this masjid '
+                    'and plays from every bell you switch to Azaan. '
+                    'Silence is still yours: on silent or vibrate nothing '
+                    'rings.',
                     style: GoogleFonts.outfit(
                       fontSize: 11,
                       color: NoorColors.onGlassMuted,
@@ -439,6 +504,202 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
             : null,
         onTap: onTap,
       ),
+    );
+  }
+
+  /// One clip the masjid may recite: the radio, its name, and a play sign
+  /// when it is the one already in force. Tapping previews it as well as
+  /// filing it, so the reader hears the voice they just chose.
+  Widget _clipChoice({
+    required String clipKey,
+    required String name,
+    required String current,
+    required VoidCallback onTap,
+  }) {
+    final bool selected = clipKey == current;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        leading: Icon(
+          selected ? Icons.radio_button_checked : Icons.radio_button_off,
+          size: 18,
+          color: selected ? NoorColors.emeraldDeep : NoorColors.muted,
+        ),
+        title: Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.outfit(
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: NoorColors.ink,
+          ),
+        ),
+        trailing: clipKey == 'silent'
+            ? const Icon(Icons.volume_off_outlined,
+                size: 18, color: NoorColors.muted)
+            : Icon(
+                AzanPlayer.instance.playingKey == clipKey
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline,
+                size: 18,
+                color: NoorColors.emeraldDeep,
+              ),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  /// Files [clipKey] against the masjid this card quotes — or against the
+  /// profile when no board is quoted — and rehearses it.
+  Future<void> _pickClip(String clipKey, StateSetter setDialog) async {
+    final AppSettings settings = AppSettings.instance;
+    final String boardId = widget.board?.id ?? '';
+    if (boardId.isEmpty) {
+      settings.setAzanSound(clipKey);
+    } else {
+      settings.setMasjidAzanSound(boardId, clipKey);
+    }
+    // Android freezes a notification channel's sound at creation; the banner
+    // itself stays silent, but the same rebuild Settings used to make still
+    // belongs here so no stale audible channel survives a change of voice.
+    await NotificationService.applyAzanChannel(AppSettings.instance.azanSound);
+    _armReschedule();
+    if (!mounted) return;
+
+    if (clipKey == 'silent') {
+      unawaited(AzanPlayer.instance.stop());
+      _say('“None (silent)” is selected — this masjid’s reminders stay '
+          'silent, and nothing is playing now.');
+      setDialog(() {});
+      return;
+    }
+
+    final bool started = clipKey == kCustomAzanKey
+        ? await AzanPlayer.instance.previewFile(settings.customAzanPath)
+        : await AzanPlayer.instance.preview(clipKey);
+    if (!mounted) return;
+    if (!started) {
+      _say('Your phone is on silent or vibrate, so nothing is playing — '
+          'that is the Azaan staying quiet exactly as your reminders will.');
+    }
+    setDialog(() {});
+  }
+
+  /// Opens the phone's file picker and points this masjid — or the profile,
+  /// when no board is quoted — at the chosen file.
+  Future<void> _chooseOwnClip(StateSetter setDialog) async {
+    final String? path = await AzaanAlarm.pickAudioFile();
+    if (path == null || !mounted) return;
+
+    final AppSettings settings = AppSettings.instance;
+    settings.setCustomAzanPath(path);
+    final String boardId = widget.board?.id ?? '';
+    if (boardId.isEmpty) {
+      settings.setAzanSound(kCustomAzanKey);
+    } else {
+      settings.setMasjidAzanSound(boardId, kCustomAzanKey);
+    }
+    await NotificationService.applyAzanChannel(AppSettings.instance.azanSound);
+    _armReschedule();
+    if (!mounted) return;
+
+    final bool started = await AzanPlayer.instance.previewFile(path);
+    if (!mounted) return;
+    if (!started) {
+      _say('Your phone is on silent or vibrate, so nothing is playing — '
+          'turn the ringer up to hear it.');
+    }
+    setDialog(() {});
+  }
+
+  /// Hands the chosen clip to the phone's own ringtone list and says where
+  /// to find it — the bell's copy of the row Settings used to carry.
+  ///
+  /// The bridge answers with *how* it landed rather than a bare success, so
+  /// "already there", "refused" and "this platform has no such list" read
+  /// differently instead of one silent tap.
+  Future<void> _exportRingtone(String key) async {
+    final AzanSound chosen = azanSoundByKey(key);
+    if (chosen.key == 'silent') {
+      _say('“None (silent)” has no clip to add — tap an Azaan above first.');
+      return;
+    }
+
+    final String own = customAzanName(AppSettings.instance.customAzanPath);
+    final String name =
+        chosen.key == kCustomAzanKey && own.isNotEmpty ? own : chosen.label;
+    final String title = 'Noor Azaan - $name';
+    final ({bool added, String code, String? uri}) outcome =
+        await AzaanAlarm.addToPhoneRingtone(chosen.key, title);
+    if (!mounted) return;
+
+    switch (outcome.code) {
+      case 'ok':
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text(
+              outcome.added
+                  ? 'Added — “$title” is in your phone’s ringtone list. Open '
+                      'Sound settings and choose it under Phone ringtone.'
+                  : '“$title” is already in your ringtone list — open Sound '
+                      'settings and choose it under Phone ringtone.',
+            ),
+            action: SnackBarAction(
+              label: 'Open sound settings',
+              onPressed: AzaanAlarm.openSoundSettings,
+            ),
+          ),
+        );
+        break;
+      case 'denied':
+        _say('Storage was refused, so the clip cannot leave the app on this '
+            'phone. Allow storage for Noor and tap again.');
+        break;
+      case 'unsupported':
+        _say('Only Android phones let Noor add to their ringtone list.');
+        break;
+      default:
+        _say('Couldn’t add it to the ringtone list — please try again.');
+    }
+  }
+
+  /// Makes sure Android will actually show the reminder card.
+  ///
+  /// The Azaan rides an exact alarm and plays whether or not this app may
+  /// post notifications — the worst pair for a reader: the phone recites at
+  /// the right minute and nothing on screen explains why. The bell asks for
+  /// the permission the moment Azaan is chosen, and names the system switch
+  /// when the reader has already said no.
+  Future<void> _ensureNotifications() async {
+    if (await AzaanAlarm.notificationsEnabled()) return;
+    await NotificationService.requestPermission();
+    if (!mounted) return;
+    if (await AzaanAlarm.notificationsEnabled()) return;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 8),
+        content: const Text(
+          'Notifications are off for Noor, so the reminder card cannot '
+          'appear when the Azaan plays. Allow notifications to see it.',
+        ),
+        action: SnackBarAction(
+          label: 'Open settings',
+          onPressed: AzaanAlarm.openNotificationSettings,
+        ),
+      ),
+    );
+  }
+
+  void _say(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(duration: const Duration(seconds: 6), content: Text(message)),
     );
   }
 
@@ -624,7 +885,11 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   /// off, and both re-read the per-prayer sound for the ones still on.
   Future<void> _reschedule() async {
     try {
-      await NotificationService.scheduleAzan(latitude: _lat, longitude: _lng);
+      await NotificationService.scheduleAzan(
+        latitude: _lat,
+        longitude: _lng,
+        masjidId: widget.board?.id ?? '',
+      );
       await NotificationService.scheduleFavouriteAlerts();
     } catch (error) {
       debugPrint('Noor ▸ bell re-arm failed: $error');
@@ -702,24 +967,16 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                 child: Text(
-                  'Pick the starred board this card quotes. The small line in '
-                  'each cell stays the calculated Awwal time either way.',
+                  'Pick the starred board this card quotes. The Azaan follows '
+                  'the same masjid, so picking one here changes both. The '
+                  'small line in each cell stays the calculated Awwal time '
+                  'either way.',
                   style: GoogleFonts.outfit(
                     fontSize: 11.5,
                     color: NoorColors.muted,
                     height: 1.45,
                   ),
                 ),
-              ),
-              _boardOption(
-                icon: Icons.my_location,
-                title: 'Nearest starred masjid',
-                subtitle: 'Let the nearby list decide',
-                selected: current.isEmpty,
-                onTap: () {
-                  AppSettings.instance.setTodayBoard('');
-                  Navigator.of(sheetContext).pop();
-                },
               ),
               for (final Masjid m in widget.boards)
                 _boardOption(
@@ -996,7 +1253,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                   letterSpacing: 0.2,
                 ),
               ),
-              if (jamaat.isNotEmpty)
+              if (jamaat.isNotEmpty && e.key != 'juma')
                 // …and the Awwal time stays right there beneath it, small.
                 Text(
                   settings.formatShort(e.time),
@@ -1009,7 +1266,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
               // The *official* end — the calculated clock, never the board's
               // Jamaat cell. Sunrise is not a prayer and ends nothing, so
               // `officialEnd` leaves it without this line.
-              if (e.end != null)
+              if (e.end != null && e.key != 'juma')
                 Text(
                   'Ends ${settings.format(e.end!)}',
                   maxLines: 1,
@@ -1022,10 +1279,9 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
           ),
           SizedBox(
             width: 26,
-            // Sunrise is not a prayer and carries no notification, so its
-            // end stays deliberately empty — the fixed-width spacer is what
-            // keeps every clock on the same line down the card.
-            child: e.key == 'sunrise' ? null : _bell(e.key),
+            // Sunrise is not a prayer and carries no notification; Jummah
+            // carries no bell either.
+            child: e.key == 'sunrise' || e.key == 'juma' ? null : _bell(e.key),
           ),
         ],
       ),

@@ -29,8 +29,10 @@ void main() {
   final String manifest =
       File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
   final String alarm = File('lib/services/azaan_alarm.dart').readAsStringSync();
-  final String settings =
-      File('lib/screens/settings_screen.dart').readAsStringSync();
+  // The row moved into the Home bell dialog with the rest of the clip's own
+  // controls: the masjid whose voice it is lives there, not in Settings.
+  final String card =
+      File('lib/today_prayer_card.dart').readAsStringSync();
 
   test('the row carries the flag the ringtone list is a query for', () {
     expect(ringtones, contains('MediaStore.Audio.Media.IS_RINGTONE, 1'),
@@ -81,15 +83,15 @@ void main() {
             'would strand the first reply.');
   });
 
-  test('the Settings row and the bridge under it agree', () {
-    expect(settings, contains("'Add to phone ringtone list'"),
+  test('the bell row and the bridge under it agree', () {
+    expect(card, contains("'Add to phone ringtone list'"),
         reason: 'the button the reader actually taps.');
-    expect(settings, contains("'Noor Azaan - \$"),
+    expect(card, contains("'Noor Azaan - \$"),
         reason: 'the title the entry lands under — named for the app, so '
             'the phone’s list says whose clip it is among its own sounds, '
             'and carrying a name that changes with the clip when the clip '
             'is the reader’s own file.');
-    expect(settings, contains('_addToPhoneRingtone'),
+    expect(card, contains('_exportRingtone'),
         reason: 'and its handler, which answers "None (silent)" with a '
             'sentence instead of exporting nothing.');
     expect(alarm, contains('addToPhoneRingtone'),

@@ -39,6 +39,8 @@ void main() {
   final String alarm = File('lib/services/azaan_alarm.dart').readAsStringSync();
   final String settings =
       File('lib/screens/settings_screen.dart').readAsStringSync();
+  final String card =
+      File('lib/today_prayer_card.dart').readAsStringSync();
   final String onboarding =
       File('lib/screens/onboarding_screen.dart').readAsStringSync();
 
@@ -87,9 +89,9 @@ void main() {
     expect(player, contains('AzaanAlarm.ringerMode()'),
         reason: 'before step 1, or the false from the native player falls '
             'through to step 2 and fetches the remote clip anyway.');
-    expect(settings, contains('_explainSilenced'),
+    expect(card, contains('on silent or vibrate'),
         reason: 'declining silently is the complaint this app was fixed for, '
-            'one row over: a button that answers nothing.');
+            'one row over: a choice that answers nothing.');
   });
 
   test('Settings no longer promises to ring through silence', () {
@@ -100,9 +102,10 @@ void main() {
     expect(onboarding, isNot(contains('on a silent phone')),
         reason: 'the same promise on the first screen anyone sees is the one '
             'most likely to be believed.');
-    expect(settings, contains('Silence is still yours'),
+    expect(card, contains('Silence is still yours'),
         reason: 'the promise is replaced, not deleted — a reader has to be '
-            'told what happens instead.');
+            'told what happens instead, in the bell dialog where the clip '
+            'and its volume are now chosen.');
     expect(audio, contains('AudioAttributes.USAGE_NOTIFICATION_RINGTONE'),
         reason: 'the stream is the reader\u2019s own ringer, so one slider '
             'sets how loud a prayer may be and the volume keys are already '

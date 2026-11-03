@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.media.AudioAttributes
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 
 /**
@@ -60,6 +62,27 @@ object PrayerCard {
     private const val CHANNEL_DESCRIPTION =
         "A reminder at each of the five daily prayer times"
 
+    /**
+     * The channel a **muted bell** posts on: the phone's own notification
+     * sound, and nothing else.
+     *
+     * A bell on Mute asks for a reminder without a recitation, and "without a
+     * recitation" must not mean "without a sound": a prayer nothing announces
+     * is a prayer the reader misses. So this channel carries whatever the
+     * phone already uses for its notifications — the reader's own answer to
+     * "what does an alert sound like" — while the Azaan's channel stays
+     * silent, because there the recitation is the sound.
+     *
+     * It exists as a separate id rather than as a per-notification sound
+     * because Android freezes a channel's sound at creation: one channel
+     * cannot be both the system sound and silence, and re-creating it would
+     * be ignored on every phone that already has it.
+     */
+    private const val MUTED_CHANNEL_ID = "azan_muted_bell_v1"
+    private const val MUTED_CHANNEL_NAME = "Azan Reminders (bell muted)"
+    private const val MUTED_CHANNEL_DESCRIPTION =
+        "A reminder at a prayer time whose bell is on Mute"
+
     private const val ACCENT = 0xFF0A4D3C.toInt()
 
     /**
@@ -75,11 +98,17 @@ object PrayerCard {
         title: String?,
         body: String?,
         playing: Boolean,
+        ring: Boolean = false,
     ) {
         try {
             val manager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.notify(id, build(context, id, title, body, playing))
+            manager.notify(id, build(context, id, title, body, playing, ring))
+            // Proof the card was handed to the system, and in which state —
+            // "no notification came" was otherwise indistinguishable between
+            // a card that was never posted and one posted and then taken
+            // down a moment later by a reschedule.
+            Log.i(TAG, "card $id posted (playing=$playing)")
         } catch (error: Exception) {
             Log.w(TAG, "could not post the prayer card: ${error.message}")
         }
@@ -96,18 +125,27 @@ object PrayerCard {
         title: String?,
         body: String?,
         playing: Boolean,
+        ring: Boolean = false,
     ): Notification {
-        ensureChannel(context)
+        if (ring) ensureMutedChannel(context) else ensureChannel(context)
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(context, CHANNEL_ID)
+            Notification.Builder(context, if (ring) MUTED_CHANNEL_ID else CHANNEL_ID)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(context)
         }
 
         return builder
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // A plain drawable, never the launcher mipmap.
+            //
+            // The adaptive launcher icon is not a status-bar icon: a build fan
+            // answers `notify()` for it and then shows nothing at all — no
+            // card, no error, no log line — which is exactly how "the Azaan
+            // rings and no notification comes" survived every previous fix.
+            // The lock-screen card next door has always used this drawable and
+            // has always appeared; one icon, one answer.
+            .setSmallIcon(R.drawable.ic_lock_moon)
             .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Prayer reminder")
             .setContentText(
                 if (playing) "Azaan playing" else (body?.takeIf { it.isNotBlank() } ?: "It is time.")
@@ -123,7 +161,9 @@ object PrayerCard {
             // a reminder again and goes with a flick like any other.
             .setOngoing(playing)
             .setAutoCancel(!playing)
-            .setOnlyAlertOnce(true)
+            // A fresh reminder may sound once; a card that only changed its
+            // wording (the clip ending, the same prayer re-posted) must not.
+            .setOnlyAlertOnce(!ring)
             .apply {
                 if (playing) {
                     // The screen, and then the button.
@@ -142,8 +182,28 @@ object PrayerCard {
                     // Without it the card still works — the rocker is
                     // watched four streams wide one layer down — but a key
                     // that moves nothing would have nothing to catch it.
-                    setFullScreenIntent(screenIntent(context, id, title), true)
+                    //
+                    // **But only when this app has no other way to raise
+                    // that window.** A notification carrying a full-screen
+                    // intent is a special object on MIUI, and a phone whose
+                    // pop-up switch is off does not merely refuse the launch
+                    // — it drops the *whole notification*, silently, within
+                    // a hundred milliseconds of it being posted. That is the
+                    // exact shape of the report this fixes: the Azaan sounds
+                    // and there is no card and no popup, because the card was
+                    // never allowed to exist. Where [PopUpWindows] says the
+                    // window can be raised directly, the recitation service
+                    // does exactly that and the card stays an ordinary card.
+                    if (!PopUpWindows.allowed(context)) {
+                        setFullScreenIntent(screenIntent(context, id, title), true)
+                    }
                     addAction(stopAction(context))
+                    // "The moment the notification goes, the Azaan goes." A
+                    // swipe is the other way a reader can take the card away,
+                    // and it must mean the same thing the STOP button does —
+                    // otherwise the clip would keep sounding with nothing left
+                    // on screen to stop it.
+                    setDeleteIntent(dismissAction(context))
                 }
             }
             .build()
@@ -182,6 +242,17 @@ object PrayerCard {
         )
     }
 
+    /** A swipe: the same stop, minus putting the card back afterwards. */
+    private fun dismissAction(context: Context): PendingIntent {
+        val dismiss = Intent(context, AzaanPlaybackService::class.java)
+            .setAction(AzaanPlaybackService.ACTION_DISMISS)
+        var flags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags = flags or PendingIntent.FLAG_IMMUTABLE
+        }
+        return PendingIntent.getService(context, 1, dismiss, flags)
+    }
+
     /** The recitation screen — the window the volume keys are given. */
     private fun screenIntent(context: Context, id: Int, title: String?): PendingIntent {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -204,6 +275,103 @@ object PrayerCard {
         // anything else than a drawable.
         @Suppress("DEPRECATION")
         Notification.Action.Builder(icon, label, pending).build()
+
+    /**
+     * Whether this app is allowed to show the prayer card at all.
+     *
+     * This is the question the recitation may be gated on: no notifications
+     * enabled, or the reminder channel switched off, means the card the
+     * reader needs in order to stop the clip can never appear — and a clip
+     * nobody can stop is what the gate exists to prevent.
+     *
+     * It is deliberately *not* [isLive]. `getActiveNotifications()` answers
+     * `empty` on some OEM builds (measured here: the card is live during
+     * `startForeground` and the very next call, a millisecond later, reports
+     * nothing), so gating a prayer on it would silently mute the app on those
+     * phones. The permission answer is one the system gives honestly.
+     */
+    fun canShow(context: Context): Boolean = try {
+        val manager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!manager.areNotificationsEnabled()) {
+            false
+        } else {
+            val channel = manager.getNotificationChannel(CHANNEL_ID)
+            channel == null || channel.importance != NotificationManager.IMPORTANCE_NONE
+        }
+    } catch (error: Exception) {
+        Log.w(TAG, "could not read the notification switch: ${error.message}")
+        true
+    }
+
+    /**
+     * Whether the card for [id] is actually up in the shade right now.
+     *
+     * The recitation is only allowed to sound behind a card that carries the
+     * `STOP AZAN` button — that is the reader's one handle on a clip that can
+     * run for minutes, and an Azaan that plays with nothing to press is the
+     * exact complaint this answers: "if the notification is gone, the Azaan
+     * must not play at all".
+     *
+     * So the two questions are asked of the system rather than assumed from
+     * having called `notify()`: a blocked channel, a revoked permission or a
+     * reschedule that cancelled the card all answer `false` here, and all of
+     * them used to leave a clip sounding with no way to stop it. Anything that
+     * cannot be read answers `true` — an unreadable answer must not be the one
+     * that takes a prayer away (and on API < 23 there is nothing to read).
+     */
+    fun isLive(context: Context, id: Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        return try {
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val live = manager.activeNotifications
+            val answer = live.any { it.id == id }
+            if (!answer) {
+                Log.i(
+                    TAG,
+                    "card $id is not up (active: ${live.joinToString(",") { "${it.id}" }})",
+                )
+            }
+            answer
+        } catch (error: Exception) {
+            Log.w(TAG, "could not read the active cards: ${error.message}")
+            true
+        }
+    }
+
+    /**
+     * The muted-bell channel: the phone's own notification sound, once.
+     *
+     * `IMPORTANCE_HIGH` so the reminder arrives the way a reminder should —
+     * heads-up where the reader allows it — and the default notification uri
+     * so it sounds like every other app on the phone rather than like this
+     * one. No vibration is added on top: the sound is the announcement.
+     */
+    private fun ensureMutedChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(MUTED_CHANNEL_ID) != null) return
+        manager.createNotificationChannel(
+            NotificationChannel(
+                MUTED_CHANNEL_ID,
+                MUTED_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = MUTED_CHANNEL_DESCRIPTION
+                setSound(
+                    Settings.System.DEFAULT_NOTIFICATION_URI,
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+                enableVibration(false)
+                setShowBadge(false)
+            },
+        )
+        Log.i(TAG, "created the muted-bell channel $MUTED_CHANNEL_ID")
+    }
 
     /**
      * Creates the reminder channel if nothing has yet.
