@@ -166,7 +166,9 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   /// The board's own Jamaat time for [key], or `''` when it has none.
   ///
   /// For `juma` the board's Juma cell is used. If missing, the row falls back
-  /// to the calculated Dhuhr clock.
+  /// to the calculated Dhuhr clock — never to the board's *daily* noon cell:
+  /// a board that never answered the Friday question does not get its
+  /// everyday answer dressed up as the Jummah time.
   String _jamaat(String key) {
     final Masjid? board = widget.board;
     if (board == null) return '';
@@ -174,10 +176,6 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
     final String stored = board.timeFor(key);
     if (NotificationService.parseClockTime(stored) != null) {
       return stored;
-    }
-    if (key == 'juma') {
-      final String dhuhr = board.timeFor('dhuhr');
-      return NotificationService.parseClockTime(dhuhr) != null ? dhuhr : '';
     }
     return '';
   }
@@ -977,6 +975,16 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                     height: 1.45,
                   ),
                 ),
+              ),
+              _boardOption(
+                icon: Icons.my_location,
+                title: 'Nearest starred masjid',
+                subtitle: 'Let the nearby list decide',
+                selected: current.isEmpty,
+                onTap: () {
+                  AppSettings.instance.setTodayBoard('');
+                  Navigator.of(sheetContext).pop();
+                },
               ),
               for (final Masjid m in widget.boards)
                 _boardOption(
