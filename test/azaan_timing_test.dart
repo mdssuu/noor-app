@@ -6,11 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// One prayer has two announcements available to it — the calculated Awwal
 /// time and a favourite masjid's own Jamaat column — and "When will the
-/// Azaan play?" is the single control that says which of them may ring. The
-/// dropdown was once reduced to one row (a fix for the "do baar azaan" bug,
-/// where both were armed because neither could be chosen); it offers all four
-/// modes again, so these check the three things that decide behaviour: the
-/// value on disk, the labels a reader picks from, and the two booleans the
+/// Azaan play?" says which of them may ring. It used to be one dropdown in
+/// Settings, answered for all five prayers at once; it now lives in each
+/// prayer's own bell dialog on Home, answered one prayer at a time, with
+/// the profile's own answer standing in for any prayer that has not spoken
+/// for itself. These check the three things that decide behaviour: the
+/// value on disk, the labels a reader picks from, and the booleans the
 /// scheduler consults.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -121,6 +122,109 @@ void main() {
       // "Awwal", and neither leans on the reader inferring which clock.
       expect(azaanTimingLabel(kAzaanTimingJamaatOnly), contains('masjid'));
       expect(azaanTimingLabel(kAzaanTimingAwwalOnly), contains('Awwal'));
+    });
+
+    test('a prayer inherits the profile’s answer until it speaks for itself',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('timing-inherit');
+
+      // Nothing stored anywhere: every prayer reads the profile's own
+      // default, which is the answer every install that ever set the
+      // dropdown in Settings keeps reading after the move.
+      for (final String prayer in kNotifiablePrayers) {
+        expect(settings.azaanTimingFor(prayer), kAzaanTimingDefault,
+            reason: '$prayer has not spoken, so it follows the profile');
+        expect(settings.schedulesJamaatFor(prayer), isTrue);
+        expect(settings.schedulesAwwalFor(prayer), isFalse);
+      }
+    });
+
+    test('one prayer can be re-answered without moving its siblings',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('timing-per-prayer');
+      settings.setAzaanTimingFor('fajr', kAzaanTimingAwwalOnly);
+
+      expect(settings.azaanTimingFor('fajr'), kAzaanTimingAwwalOnly);
+      expect(settings.schedulesAwwalFor('fajr'), isTrue);
+      expect(settings.schedulesJamaatFor('fajr'), isFalse);
+      for (final String prayer in kNotifiablePrayers.skip(1)) {
+        expect(settings.azaanTimingFor(prayer), kAzaanTimingDefault,
+            reason: '$prayer was never asked');
+        expect(settings.schedulesJamaatFor(prayer), isTrue);
+      }
+      // The profile's own answer is untouched: the prayer's answer is the
+      // prayer's, and what Settings used to hold is what the *next*
+      // un-answered prayer will read.
+      expect(settings.azaanTiming, kAzaanTimingDefault);
+    });
+
+    test('an answer that merely repeats the profile is cleared, not stored',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('timing-agree');
+      settings.setAzaanTimingFor('asr', kAzaanTimingJamaatOnly);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.containsKey(
+            AppSettings.scopedKeyFor('azantiming_asr', 'timing-agree')),
+        isFalse,
+        reason: 'a prayer that agrees with the default has no business '
+            'pinning a copy of it — a later change to the profile’s answer '
+            'has to reach it too',
+      );
+      expect(settings.azaanTimingFor('asr'), kAzaanTimingJamaatOnly,
+          reason: 'and it still reads that answer, by inheritance');
+    });
+
+    test('the prayer’s own answer is filed under its profile', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('timing-uid-x');
+      settings.setAzaanTimingFor('maghrib', kAzaanTimingBoth);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString(
+            AppSettings.scopedKeyFor('azantiming_maghrib', 'timing-uid-x')),
+        kAzaanTimingBoth,
+      );
+      // The bare name never sits device-wide, like every other setting.
+      expect(prefs.containsKey('azantiming_maghrib'), isFalse);
+
+      // A second account inherits its own default, not the first's answer.
+      await settings.useProfile('timing-uid-y');
+      expect(settings.azaanTimingFor('maghrib'), kAzaanTimingDefault);
+
+      await settings.useProfile('timing-uid-x');
+      expect(settings.azaanTimingFor('maghrib'), kAzaanTimingBoth);
+    });
+
+    test('a mode the dropdown does not offer falls back for that prayer',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        AppSettings.scopedKeyFor('azantiming_isha', 'timing-garbage'):
+            'sometimes',
+      });
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('timing-garbage');
+
+      expect(settings.azaanTimingFor('isha'), kAzaanTimingDefault,
+          reason: 'a value the app cannot read is the profile’s answer, '
+              'never a mode the scheduler has no name for');
+      expect(settings.schedulesJamaatFor('isha'), isTrue);
     });
   });
 }

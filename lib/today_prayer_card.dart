@@ -30,9 +30,11 @@ import 'services/azan_player.dart';
 ///
 /// The bell does not walk that ring on its own; it opens a dialog the reader
 /// answers, and only a real answer moves the bell. That dialog is also where
-/// *this prayer's* own timing lives: how long before its clock the reminder
-/// knocks, offered as the same chips Settings carries. The clip itself stays
-/// in Settings — it is one global answer, and a per-prayer door for it would
+/// *this prayer's* own answers live: which clock may ring at all (the
+/// masjid's Jamaat, the calculated Awwal, both, or neither), and how long
+/// before that clock the reminder knocks — each one prayer at a time, which
+/// is the only scope either has ever really had. The clip itself stays in
+/// Settings — it is one global answer, and a per-prayer door for it would
 /// promise a choice no per-prayer alarm can keep.
 ///
 /// This card always renders, even when the Firestore `masjids` collection is
@@ -329,6 +331,52 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
 
                   const SizedBox(height: 14),
 
+                  // ------------------------------------------ which clock
+                  // The mode Settings' old dropdown asked for, asked of the
+                  // prayer whose dialog this is. Four answers do not fit one
+                  // line inside a dialog this wide, so they take two rows of
+                  // two — and the caption underneath reads the pick back in
+                  // the reader's own terms rather than a key.
+                  Text(
+                    'When will the Azaan play?',
+                    style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: NoorColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _azaanTimingCaption(settings.azaanTimingFor(key)),
+                    style: GoogleFonts.outfit(
+                      fontSize: 11.5,
+                      color: NoorColors.onGlassMuted,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: <Widget>[
+                      _azaanTimingChip(
+                          key, kAzaanTimingJamaatOnly, 'Jamaat time',
+                          setDialog),
+                      const SizedBox(width: 5),
+                      _azaanTimingChip(
+                          key, kAzaanTimingAwwalOnly, 'Awwal time', setDialog),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: <Widget>[
+                      _azaanTimingChip(
+                          key, kAzaanTimingBoth, 'Both times', setDialog),
+                      const SizedBox(width: 5),
+                      _azaanTimingChip(key, kAzaanTimingNone, 'Off', setDialog),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
                   // ------------------------------------------------- clip
                   // The voice belongs to the masjid whose row this bell sits
                   // on, not to the whole profile: two masjids across the road
@@ -405,7 +453,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _whenCaption,
+                    _whenCaption(key),
                     style: GoogleFonts.outfit(
                       fontSize: 11.5,
                       color: NoorColors.onGlassMuted,
@@ -779,12 +827,14 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
     _pickOffset(key, picked, setDialog);
   }
 
-  /// Which clock the offset is measured against. Settings says it under a
-  /// mode dropdown this dialog does not carry, so the sentence has to carry
-  /// the mode instead — otherwise "15 min" is fifteen minutes before
-  /// nothing in particular.
-  String get _whenCaption {
-    switch (AppSettings.instance.azaanTiming) {
+  /// Which clock [key]'s offset is measured against.
+  ///
+  /// The mode chips above it are what set this, so the sentence reads the
+  /// prayer's own answer rather than the profile's — otherwise "15 min" is
+  /// fifteen minutes before nothing in particular the moment a reader picks
+  /// "Off" for this bell alone.
+  String _whenCaption(String key) {
+    switch (AppSettings.instance.azaanTimingFor(key)) {
       case kAzaanTimingAwwalOnly:
         return 'How long before your calculated prayer time the reminder rings.';
       case kAzaanTimingBoth:
@@ -796,6 +846,77 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
       default:
         return 'How long before your favourite masjid’s Jamaat time the '
             'reminder rings.';
+    }
+  }
+
+  /// One answer of "When will the Azaan play?" for [prayer] alone — the
+  /// same four Settings' dropdown used to offer, cut into chips because a
+  /// dialog has room for two rows of two and no room for a menu.
+  ///
+  /// The pick is filed on the spot and the dialog stays open, exactly like
+  /// the offset chips beneath it: a reader comparing "Jamaat time" against
+  /// "Both times" should not have to reopen the question for each one.
+  Widget _azaanTimingChip(
+      String prayer, String mode, String label, StateSetter setDialog) {
+    final String current = AppSettings.instance.azaanTimingFor(prayer);
+    final bool selected = current == mode;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          // A profile-wide answer re-answered for this prayer alone: the
+          // setter clears rather than writes when the two agree, so this
+          // prayer never pins a copy of the default it is simply following.
+          AppSettings.instance.setAzaanTimingFor(prayer, mode);
+          _armReschedule();
+          setDialog(() {});
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? NoorColors.emerald : NoorColors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? NoorColors.emerald
+                  : NoorColors.gold.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.outfit(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: NoorColors.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The sentence under the mode chips, in the words the chips themselves
+  /// are too short to carry — the four answers a reader might have just
+  /// picked, each said back in the terms that decide what actually rings.
+  String _azaanTimingCaption(String mode) {
+    switch (mode) {
+      case kAzaanTimingAwwalOnly:
+        return 'The Azaan plays at the calculated Awwal time — the earliest '
+            'moment this prayer begins.';
+      case kAzaanTimingBoth:
+        return 'The Azaan plays twice for this prayer: once at the '
+            'calculated Awwal time, then again at your favourite masjid’s '
+            'own Jamaat time.';
+      case kAzaanTimingNone:
+        return 'No Azaan will sound for this prayer. The prohibited-time '
+            '(zawal) banner is unaffected.';
+      case kAzaanTimingJamaatOnly:
+      default:
+        return 'The Azaan plays once for this prayer, at your favourite '
+            'masjid’s own Jamaat time.';
     }
   }
 

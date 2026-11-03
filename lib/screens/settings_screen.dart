@@ -215,33 +215,6 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
       );
 
-  /// The sentence under "When will the Azaan play?".
-  ///
-  /// The row below offers all four modes and each one reads a different
-  /// clock, so this has to describe the mode that is actually live rather
-  /// than repeat the answer for whichever row the reader is about to leave —
-  /// otherwise "Only at Awwal time" still tells them the masjid's Jamaat
-  /// time is what will sound.
-  String get _azaanTimingHint {
-    switch (_settings.azaanTiming) {
-      case kAzaanTimingAwwalOnly:
-        return 'The Azaan plays at the calculated Awwal time — the earliest '
-            'moment each prayer begins.';
-      case kAzaanTimingBoth:
-        return 'The Azaan plays twice for each prayer: once at the '
-            'calculated Awwal time, then again at your favourite masjid’s '
-            'own Jamaat time.';
-      case kAzaanTimingNone:
-        return 'No Azaan will sound for any prayer. The prohibited-time '
-            '(zawal) banner is unaffected.';
-      case kAzaanTimingJamaatOnly:
-      default:
-        return _settings.hasPrePrayerReminder
-            ? 'A pre-prayer reminder is on, so the Azaan plays at your favourite masjid’s Jamaat time.'
-            : 'The Azaan plays once per prayer, at your favourite masjid’s own Jamaat time.';
-    }
-  }
-
   /// One of a set of mutually exclusive options, laid out edge to edge.
   Widget _option({
     required String label,
@@ -570,82 +543,23 @@ class _SettingsScreenState extends State<SettingsScreen>
                   'early, is asked for on Home — this screen holds what is '
                   'the same for every prayer.',
                 ),
-                if (_settings.notificationsEnabled) ...<Widget>[
-                  Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        _label('When will the Azaan play?'),
-                        _hint(_azaanTimingHint),
-                        DropdownButtonFormField<String>(
-                          // The stored value is part of the key, not just the
-                          // option list: `initialValue` only ever seeds the
-                          // field once, so a value arriving from a profile
-                          // switch or the admin config would otherwise leave
-                          // a stale row lit. With four modes offered, a row
-                          // that disagrees with what is on disk is a setting
-                          // the reader cannot see, let alone undo.
-                          key: ValueKey(
-                              '${_settings.azaanTiming}|${_settings.azaanTimingOptions.join('|')}'),
-                          initialValue: _settings.azaanTimingOptions
-                                  .contains(_settings.azaanTiming)
-                              ? _settings.azaanTiming
-                              : _settings.azaanTimingOptions.first,
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: NoorColors.cardGreen,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide:
-                                  BorderSide(color: NoorColors.gold.withValues(alpha: 0.6)),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide:
-                                  BorderSide(color: NoorColors.gold.withValues(alpha: 0.6)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide: const BorderSide(
-                                  color: NoorColors.emerald, width: 1.4),
-                            ),
-                          ),
-                          items: _settings.azaanTimingOptions
-                              .map((String key) => DropdownMenuItem<String>(
-                                    value: key,
-                                    child: Text(azaanTimingLabel(key),
-                                        style:
-                                            GoogleFonts.outfit(fontSize: 13)),
-                                  ))
-                              .toList(),
-                          onChanged: (String? key) {
-                            if (key == null) return;
-                            _settings.setAzaanTiming(key);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  // The per-prayer rows that used to stand here — a switch
-                  // and two rows of chips for each of the five — answered
-                  // the very question the bell at the end of that prayer's
-                  // row on Home answers: Azaan, Mute or Band, and how many
-                  // minutes before. Two doors to one choice is the "double"
-                  // a reader named, so they are gone; what stays here is
-                  // what Home does not ask — the gate every prayer passes
-                  // and the mode that says which clock may ring at all.
+                if (_settings.notificationsEnabled)
+                  // The mode that says which clock may ring at all — the
+                  // question the "When will the Azaan play?" dropdown used
+                  // to ask here — has moved to Home, one prayer at a time,
+                  // standing at the front of each prayer's own bell dialog.
+                  // It had the same shape as the offset chips beside it and
+                  // the same answer for every reader who has ever set it:
+                  // what was said in Settings still stands, prayer by
+                  // prayer, until a bell is answered otherwise.
                   _hint(
-                    'Which prayers ring, and how many minutes before, is '
-                    'chosen on Home — the bell at the end of each prayer’s '
-                    'row: Azaan, Mute or Band, with the timing chips right '
-                    'there.',
+                    'Which prayers ring, how many minutes before, and '
+                    'whether the Azaan plays at your masjid’s Jamaat time, '
+                    'at your calculated Awwal time, at both or at neither — '
+                    'all of it is asked on Home, at the bell at the end of '
+                    'each prayer’s row: Azaan, Mute or Band, with the '
+                    'timing chips right there.',
                   ),
-                ],
                 if (!_settings.notificationsEnabled)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
