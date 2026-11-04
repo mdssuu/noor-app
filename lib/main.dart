@@ -8617,13 +8617,13 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                           ),
                           subtitle: Text(
                             !_favouriteKnown
-                                ? ‘Checking your favourites…’
+                                ? ‘Checking your favourites...’
                                 : !_favourite
                                     ? ‘Star this masjid first — then Noor can remind you ‘
                                         ‘at the Jamaat times shown above.’
                                     : AppSettings.instance.favAlertFor(_masjid.id)
                                         ? ‘Alerting here — the azan, reminders and Jamaat ‘
-                                            ‘alerts all follow this masjid’s Home pick.’
+                                            ‘alerts all follow this masjid\’s Home pick.’
                                         : ‘Off — Home is alerting for another masjid. ‘
                                             ‘Switching this on moves it here.’,
                             style: GoogleFonts.outfit(
@@ -8638,7 +8638,7 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                               _armedPrayers().isEmpty
                                   ? ‘Nothing armed yet — switch on at least one prayer in ‘
                                       ‘Settings, and make sure this board has that time.’
-                                  : ‘Armed for ${_armedPrayers().join(‘, ‘)}. ‘
+                                  : ‘Armed for ${_armedPrayers().join(\’, \’)}. ‘
                                       ‘Which prayers fire, and whether they fire exactly on ‘
                                       ‘the Jamaat time or minutes before, is set in Settings.’,
                               style: GoogleFonts.outfit(
@@ -8651,7 +8651,7 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                   ),
 
                   const SizedBox(height: 18),
-                  SectionHeader(title: 'Location'),
+                  SectionHeader(title: ‘Location’),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(24),
                     child: Container(
