@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -10,6 +13,7 @@ import '../main.dart';
 import '../screens/admin_panel_screen.dart';
 import '../screens/privacy_policy_screen.dart';
 import '../services/admin_access.dart';
+import '../services/azan_player.dart';
 import '../services/azaan_alarm.dart';
 import '../services/places_service.dart';
 import '../services/prayer_widget.dart';
