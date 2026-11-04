@@ -83,7 +83,7 @@ class AzanSound {
   /// File name (without extension) in `android/app/src/main/res/raw/`.
   ///
   /// This is what the notification channel plays with the app closed, and the
-  /// clip the native player reaches for when no downloaded one exists.
+  /// clip the alarm-stream player reaches for when no downloaded one exists.
   /// It is *not* what a silenced phone plays: silence is answered for, on
   /// every path, before any file is opened.
   final String? androidRaw;
@@ -125,18 +125,10 @@ const List<AzanSound> kAzanSounds = <AzanSound>[
 
 /// Looks a sound up by its stored key; unknown keys fall back to the default
 /// so a stale preference can never leave the notification channel unsounded.
-///
-/// [kCustomAzanKey] is known but is not in the catalogue, and it answers
-/// [kCustomAzanSound] rather than the default. Falling through used to turn
-/// the reader's own clip into Makkah everywhere a stored key was resolved —
-/// the alarm recited at prayer time most of all, and the clip "Add to phone
-/// ringtone" handed the phone — because a file the reader picked has no
-/// bundled resource for any lookup to find it under.
 AzanSound azanSoundByKey(String key) {
   for (final AzanSound sound in kAzanSounds) {
     if (sound.key == key) return sound;
   }
-  if (key == kCustomAzanKey) return kCustomAzanSound;
   return kAzanSounds.first;
 }
 
@@ -146,21 +138,17 @@ const List<String> kNotifiablePrayers = <String>['fajr', 'dhuhr', 'asr', 'maghri
 /// The three states a Home bell can hold, asked of the reader in the bell's
 /// dialog (Azaan / Mute / Band):
 ///
-/// * `azan` — the banner *and* the recitation, the full reminder. The banner
-///   is part of this answer, not a separate option: a recitation nobody can
-///   see is a clip with no card and no way to stop it.
-/// * `silent` — the banner only, with no sound of its own from the
-///   recitation: the phone still tells you, it just does not say the azan
-///   out loud. This is what the dialog calls **Mute**, and it already
-///   carries the notification — with the phone's own notification sound.
+/// * `azan` — the banner *and* the recitation, the full reminder.
+/// * `silent` — the banner only, with no sound of any kind: the phone
+///   still tells you, it just does not say the azan out loud.
 /// * `off` — nothing at all, not even the banner.
 const String kBellAzan = 'azan';
 const String kBellSilent = 'silent';
 const String kBellOff = 'off';
 
 /// The states the bell's dialog offers, in the reader's own words — the first
-/// the fullest, the second the quiet one that still notifies, the third
-/// nothing — and the one in force gets ticked when the dialog opens.
+/// the fullest, the last the quietest, and the one in force gets ticked when
+/// the dialog opens.
 const List<String> kBellModes = <String>[kBellAzan, kBellSilent, kBellOff];
 
 /// How many minutes before a prayer the Azan reminder fires.
@@ -171,47 +159,6 @@ const List<String> kBellModes = <String>[kBellAzan, kBellSilent, kBellOff];
 /// row shows it even when it is not one of these — see the settings screen,
 /// which folds the live value into the row rather than drawing no selection.
 const List<int> kNotifyOffsets = <int>[-1, 5, 10, 15, 30];
-
-/// The key the "own file" row carries — the reader's own audio, copied into
-/// the app-private directory and pointed at by `AppSettings.customAzanPath`.
-///
-/// It is not in [kAzanSounds] because it has no bundled resource, no remote
-/// URL and no iOS bundle name: only the Android alarm path (which opens by
-/// path) and the Dart-side fallback player know it.
-const String kCustomAzanKey = 'custom';
-
-/// The same choice as an [AzanSound], so that a lookup can answer it.
-///
-/// Deliberately outside [kAzanSounds]: that list is the catalogue this app
-/// ships — each entry a bundled resource an owner may also point a URL at,
-/// and the only thing a fresh profile can be seeded with — while this is a
-/// file on one reader's phone, which no other phone has and no default can
-/// name. What it *is*, is a real answer to
-/// `azanSoundByKey(kCustomAzanKey)`, which used to be the first entry of
-/// the catalogue instead: Makkah, recited in place of the clip the reader
-/// had chosen.
-const AzanSound kCustomAzanSound = AzanSound(kCustomAzanKey, 'Your own Azaan');
-
-/// The name the reader knows their own clip by: its file's, not the whole
-/// path — `/storage/emulated/0/Music/Adhan.mp3` is `Adhan.mp3` to anyone
-/// reading a one-line row, and it is the same name twice over where a name
-/// has to carry more weight.
-///
-/// Both of those places want it: the sheet's row (so a second pick is
-/// visibly a replacement) and the title "Add to phone ringtone" exports
-/// under, because that list is keyed by name — two different files under
-/// one title would find the first row already there and *rewrite its bytes*
-/// rather than adding the second, leaving the reader with one ringtone and
-/// a sentence about it being already added.
-///
-/// The `/` is not `Platform.pathSeparator`: the path always comes back from
-/// the Android side, where it is the only separator there is, and this file
-/// is read by tests on desktops where the two disagree.
-String customAzanName(String path) {
-  if (path.isEmpty) return '';
-  final int cut = path.lastIndexOf('/');
-  return cut >= 0 && cut < path.length - 1 ? path.substring(cut + 1) : path;
-}
 
 String notifyOffsetLabel(int minutes) =>
     minutes < 0 ? 'At time' : '$minutes min before';
@@ -235,15 +182,6 @@ const String kFavModeOffset = 'offset';
 /// Preference prefix for the per-masjid alert switch. The masjid id sits
 /// between this and the `::<uid>` scope suffix `AppSettings._key` appends.
 const String kFavAlertKeyPrefix = 'favalert::';
-
-/// Preference prefix for a masjid's own Azaan clip. The masjid id sits
-/// between this and the `::<uid>` scope suffix [AppSettings._key] appends.
-///
-/// An absent entry is not "silent": it means the masjid has never been given
-/// a voice of its own, so the profile's clip answers ([AppSettings.
-/// azanSoundForMasjid]). One reader can follow a Makkah-reciting masjid and
-/// an alafasy one across the road and hear each of them in its own voice.
-const String kMasjidAzanKeyPrefix = 'azansound::';
 
 /// When the Azaan itself is allowed to sound.
 ///
@@ -524,23 +462,6 @@ class LocalPrayerTimes {
     if (dhuhr == null) return null;
     return (start: dhuhr.subtract(const Duration(minutes: 30)), end: dhuhr);
   }
-
-  /// Today's sunrise makruh window: from sunrise until the sun has cleared
-  /// the horizon — the ten-to-fifteen minutes after sunrise in which salah
-  /// is prohibited.
-  ///
-  /// Fifteen minutes is the conservative end of the range the boards and
-  /// fiqh manuals give ("until the sun is a spear's length up"); it is
-  /// deliberately its own window rather than [makruhWindow], because the
-  /// zenith window is a different prohibition at a different hour.
-  ({DateTime start, DateTime end})? get makruhSunriseWindow {
-    final DateTime? sunrise = times['sunrise'];
-    if (sunrise == null) return null;
-    return (
-      start: sunrise,
-      end: sunrise.add(const Duration(minutes: 15)),
-    );
-  }
 }
 
 /// adhan_dart builds every prayer time with `DateTime.utc(y, m, d, hh, mm)`
@@ -599,12 +520,6 @@ class AppSettings extends ChangeNotifier {
 
   static const String _kAzan = 'azanSound';
 
-  /// Path to the audio file the user picked as their own Azaan clip, stored on
-  /// disk (copied into the app-private support directory so the Kotlin alarm
-  /// player can open it even when the app is not running). `''` means "no
-  /// custom clip — use the built-in list".
-  static const String _kCustomAzan = 'customAzanPath';
-
   /// "When will the Azaan play?" — which of the two announcements for a prayer may
   /// sound. Read back by the scheduler as `jamaat_only` when absent.
   static const String _kAzaanTiming = 'azaan_timing_pref';
@@ -660,7 +575,6 @@ class AppSettings extends ChangeNotifier {
     _kCustomCity,
     _kNotifMaster,
     _kAzan,
-    _kCustomAzan,
     _kAzaanTiming,
     _kTodayBoard,
     _kReadingLang,
@@ -670,7 +584,6 @@ class AppSettings extends ChangeNotifier {
     for (final String prayer in kNotifiablePrayers) 'notifyon_$prayer',
     for (final String prayer in kNotifiablePrayers) 'favmode_$prayer',
     for (final String prayer in kNotifiablePrayers) 'bellmode_$prayer',
-    for (final String prayer in kNotifiablePrayers) 'azantiming_$prayer',
   ];
 
   /// The profile these preferences belong to; `anon` while signed out.
@@ -718,15 +631,11 @@ class AppSettings extends ChangeNotifier {
   bool _onboarded = false;
   String _azanSound = 'makkah';
 
-  /// Path to the user's own picked Azaan file; `''` when there is none.
-  String _customAzanPath = '';
-
   /// "When will the Azaan play?" — see [kAzaanTimingJamaatOnly] and friends. The
   /// default is one recitation per prayer, at the Jamaat the user follows.
   String _azaanTiming = kAzaanTimingDefault;
 
-  /// Starred masjid id the Today card quotes — and the one masjid whose
-  /// Jamaat the Azaan follows; `''` = nearest starred.
+  /// Starred masjid id the Today card quotes; `''` = nearest starred.
   String _todayBoard = '';
 
   /// Language the daily reading's translation is printed in — see
@@ -771,29 +680,12 @@ class AppSettings extends ChangeNotifier {
   /// own.
   final Map<String, String> _bellModes = <String, String>{};
 
-  /// prayer key → "When will the Azaan play?" answered for that prayer alone.
-  ///
-  /// The same shape, and the same reason, as [_bellModes]: no default
-  /// entries, because a prayer nobody has spoken for *inherits* the
-  /// profile's own answer ([_azaanTiming]) — which is what every install
-  /// that has ever chosen a mode keeps reading, so moving the question from
-  /// Settings into each bell changes no alarm until a prayer is actually
-  /// re-answered.
-  final Map<String, String> _azaanTimings = <String, String>{};
-
   /// masjid id → whether this account wants alerts from that masjid.
   ///
-  /// One masjid rings at a time, so this is kept in step with [todayBoardId]:
-  /// "Alert me at this masjid" switched on for a masjid makes it the chosen
-  /// one, and switching it off for the chosen one leaves nothing armed.
-  /// Absent reads **on** only while that masjid is the chosen one.
+  /// Absent means **on**: a masjid you starred is one you asked to hear from,
+  /// so the switch that exists on its page and in Settings is there to opt
+  /// out rather than in.
   final Map<String, bool> _favAlerts = <String, bool>{};
-
-  /// masjid id → the Azaan clip its own reminders recite.
-  ///
-  /// Absent means the profile's global pick, so a masjid nobody has answered
-  /// for keeps behaving exactly as it did before this map existed.
-  final Map<String, String> _masjidAzan = <String, String>{};
 
   // ------------------------------------------------------------ accessors
   CalcMethod get method => kCalcMethods.firstWhere(
@@ -822,12 +714,8 @@ class AppSettings extends ChangeNotifier {
   bool get onboarded => _loaded && _onboarded;
   String get azanSound => _azanSound;
 
-  /// Path to the user's own Azaan file, or `''` when they have not picked one.
-  String get customAzanPath => _customAzanPath;
-
-  /// Starred masjid the Today card quotes by name — and the one masjid the
-  /// Azaan follows — or `''` for the automatic answer (whichever starred
-  /// masjid is nearest).
+  /// Starred masjid the Today card quotes by name, or `''` for the automatic
+  /// answer (whichever starred masjid is nearest).
   String get todayBoardId => _todayBoard;
 
   /// Which rendering of the daily reading is on show: `urdu`, `english` or
@@ -854,32 +742,14 @@ class AppSettings extends ChangeNotifier {
             _favModes[prayer] == kFavModeOffset && (_notifyOffsets[prayer] ?? -1) > 0,
       );
 
-  /// The choices "When will the Azaan play?" offers, in the order they appear
-  /// — the same four in Settings' old dropdown and in every prayer's own bell.
-  List<String> get azaanTimingOptions => kAzaanTimingOptions;
-
-  /// "When will the Azaan play?" for [prayer] — its own answer if it has
-  /// one, the profile's answer otherwise.
+  /// The Azaan timings the user is allowed to pick.
   ///
-  /// The inheritance is what makes the move out of Settings free: a reader
-  /// who set "Only at Awwal time" there keeps every prayer on Awwal, and
-  /// only a prayer whose bell is re-answered writes an answer of its own.
-  String azaanTimingFor(String prayer) {
-    final String own = _azaanTimings[prayer] ?? '';
-    return kAzaanTimingOptions.contains(own) ? own : _azaanTiming;
-  }
-
-  /// Whether [prayer]'s *calculated* (Awwal) reminder may be armed.
-  bool schedulesAwwalFor(String prayer) {
-    final String timing = azaanTimingFor(prayer);
-    return timing == kAzaanTimingAwwalOnly || timing == kAzaanTimingBoth;
-  }
-
-  /// Whether [prayer]'s favourite-masjid Jamaat alert may be armed.
-  bool schedulesJamaatFor(String prayer) {
-    final String timing = azaanTimingFor(prayer);
-    return timing == kAzaanTimingJamaatOnly || timing == kAzaanTimingBoth;
-  }
+  /// Only one choice is offered: the Azaan plays once per prayer, at the
+  /// favourite masjid's Jamaat time. A pre-prayer reminder (At time, N min)
+  /// does not hide this option anymore.
+  /// The choices the "When will the Azaan play?" dropdown offers, in the order
+  /// they appear.
+  List<String> get azaanTimingOptions => kAzaanTimingOptions;
 
   /// Whether the calculated (Awwal) reminders may be armed. With `none`
   /// selected both of these read false and every Azaan alarm is cancelled.
@@ -898,45 +768,7 @@ class AppSettings extends ChangeNotifier {
   int notifyOffsetFor(String prayer) => _notifyOffsets[prayer] ?? -1;
   bool notifyOnFor(String prayer) => _notifyOn[prayer] ?? true;
   String favModeFor(String prayer) => _favModes[prayer] ?? kFavModeAt;
-
-  /// Whether [masjidId] is the one masjid this account is alerted for.
-  ///
-  /// There is exactly one such masjid — the one the Home card quotes
-  /// ([todayBoardId]) — so the answer is decided by the choice, never by the
-  /// star alone: a second starred masjid is *not* on by default. An explicit
-  /// "off" on the chosen masjid is the only other way this reads false, and
-  /// an empty [todayBoardId] (the automatic answer) rings nothing.
-  bool favAlertFor(String masjidId) =>
-      masjidId.isNotEmpty &&
-      masjidId == _todayBoard &&
-      (_favAlerts[masjidId] ?? true);
-
-  /// The clip [masjidId]'s reminders recite.
-  ///
-  /// A masjid with no answer of its own inherits the profile's pick, so the
-  /// per-masjid choice is an override rather than a second setting every
-  /// reader has to fill in. An empty [masjidId] is the automatic/nearest
-  /// answer, which has no id to file a voice under — it gets the profile's.
-  String azanSoundForMasjid(String masjidId) {
-    if (masjidId.isEmpty) return _azanSound;
-    return _masjidAzan[masjidId] ?? _azanSound;
-  }
-
-  /// Gives one masjid its own Azaan clip, or clears the override when [key]
-  /// is empty. The profile's global choice is left untouched either way.
-  void setMasjidAzanSound(String masjidId, String key) {
-    if (masjidId.isEmpty) return;
-    if (key.isEmpty) {
-      _masjidAzan.remove(masjidId);
-      notifyListeners();
-      _put((SharedPreferences p) => p.remove(_key('$kMasjidAzanKeyPrefix$masjidId')));
-      return;
-    }
-    _masjidAzan[masjidId] = key;
-    notifyListeners();
-    _put((SharedPreferences p) =>
-        p.setString(_key('$kMasjidAzanKeyPrefix$masjidId'), key));
-  }
+  bool favAlertFor(String masjidId) => _favAlerts[masjidId] ?? true;
 
   /// The Home bell's current state for [prayer].
   ///
@@ -946,7 +778,7 @@ class AppSettings extends ChangeNotifier {
   /// for a bell nobody has ever chosen: silence until somebody says
   /// otherwise. Otherwise an explicitly picked mode wins and survives the
   /// Settings screen switching reminders off and back on (the reader gets
-  /// their choice back). Only a prayer switched on in
+  /// their `azan`/`silent` choice back). Only a prayer switched on in
   /// Settings *without* a pick of its own still derives from what the
   /// profile already said: a global `silent` sound means a quiet app, so
   /// it lands on [kBellSilent]; any other sound lands on [kBellAzan].
@@ -1115,7 +947,6 @@ class AppSettings extends ChangeNotifier {
       _prayerCardVisible = prefs.getBool(_key(_kPrayerCard)) ?? true;
       _onboarded = prefs.getBool(_key(_kOnboarded)) ?? false;
       _azanSound = prefs.getString(_key(_kAzan)) ?? 'makkah';
-      _customAzanPath = prefs.getString(_key(_kCustomAzan)) ?? '';
       // An unknown stored value would otherwise read as "no source at all",
       // which is how a typo could silently mute every reminder. Only the
       // choices the dropdown actually offers are accepted; a value from an
@@ -1145,33 +976,14 @@ class AppSettings extends ChangeNotifier {
         // A stored mode only counts if it is one of the three; anything
         // else — stale, or a profile being left behind — clears the slot
         // so [bellModeFor] derives again instead of trusting garbage.
-        //
-        // `notification_with_mute` was a fourth state before Mute already
-        // carried the banner. A profile that chose it asked for a card
-        // without sound, which is exactly [kBellSilent], so it is migrated
-        // rather than dropped — and written back, so the old key cannot
-        // return on the next read.
         final String mode = prefs.getString(_key('bellmode_$key')) ?? '';
-        if (mode == 'notification_with_mute') {
-          _bellModes[key] = kBellSilent;
-          await prefs.setString(_key('bellmode_$key'), kBellSilent);
-        } else if (kBellModes.contains(mode)) {
+        if (kBellModes.contains(mode)) {
           _bellModes[key] = mode;
         } else {
           _bellModes.remove(key);
         }
-        // The same answer for this prayer's own "When will the Azaan play?".
-        // Absent means "inherit the profile's", so a reader who only ever
-        // answered in Settings keeps every prayer exactly where it was.
-        final String timing = prefs.getString(_key('azantiming_$key')) ?? '';
-        if (kAzaanTimingOptions.contains(timing)) {
-          _azaanTimings[key] = timing;
-        } else {
-          _azaanTimings.remove(key);
-        }
       }
       _loadFavAlerts(prefs);
-      _loadMasjidAzan(prefs);
       _loaded = true;
     } catch (error) {
       debugPrint('Noor ▸ settings load failed: $error');
@@ -1194,22 +1006,6 @@ class AppSettings extends ChangeNotifier {
       if (end <= kFavAlertKeyPrefix.length) continue;
       _favAlerts[stored.substring(kFavAlertKeyPrefix.length, end)] =
           prefs.getBool(stored) ?? true;
-    }
-  }
-
-  /// Picks each masjid's own Azaan clip out of the raw key set — the same
-  /// open-ended, prefix-matched shape as [_loadFavAlerts], and cleared first
-  /// for the same reason: a profile switch must not inherit another's voices.
-  void _loadMasjidAzan(SharedPreferences prefs) {
-    _masjidAzan.clear();
-    final String suffix = '::$_scope';
-    for (final String stored in prefs.getKeys()) {
-      if (!stored.startsWith(kMasjidAzanKeyPrefix) || !stored.endsWith(suffix)) continue;
-      final int end = stored.length - suffix.length;
-      if (end <= kMasjidAzanKeyPrefix.length) continue;
-      final String value = prefs.getString(stored) ?? '';
-      if (value.isEmpty) continue;
-      _masjidAzan[stored.substring(kMasjidAzanKeyPrefix.length, end)] = value;
     }
   }
 
@@ -1264,30 +1060,10 @@ class AppSettings extends ChangeNotifier {
 
   /// Chooses whose board the Today card quotes; `''` hands it back to the
   /// automatic answer, whichever starred masjid is nearest.
-  ///
-  /// The choice is also the one-masjid alert switch: whichever masjid is
-  /// quoted is the one whose Jamaat alerts arm (see [favAlertFor]), and the
-  /// others go quiet — so a pick here is the same answer as "Alert me at this
-  /// masjid" on the masjid's own page.
   void setTodayBoard(String masjidId) {
     _todayBoard = masjidId;
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kTodayBoard), masjidId));
-  }
-
-  /// Keeps the one-masjid Azaan choice in step with the star list.
-  ///
-  /// A star is a choice: starring a masjid makes it the board the Today card
-  /// quotes *and* the one whose Jamaat the Azaan follows — the last star
-  /// wins, so there is never a second masjid ringing. Un-starring that masjid
-  /// clears the pick so the automatic answer (nearest starred) takes over,
-  /// while un-starring any other masjid leaves the chosen one alone.
-  void setStarredSelection(String masjidId, bool starred) {
-    if (starred) {
-      setTodayBoard(masjidId);
-    } else if (_todayBoard == masjidId) {
-      setTodayBoard('');
-    }
   }
 
   /// Puts the daily reading's translation into [key] (`urdu`, `english` or
@@ -1399,44 +1175,18 @@ class AppSettings extends ChangeNotifier {
     _put((SharedPreferences p) => p.setString(_key('favmode_$prayer'), mode));
   }
 
-  /// Turns one masjid's alerts on or off for this account.
-  ///
-  /// Only one masjid may be alerted for, so switching one **on** also hands it
-  /// the Home choice ([setTodayBoard]) — the azan, the notification and the
-  /// Jamaat alert all follow the same board, and the masjid that was on
-  /// before goes quiet without a second tap. Switching the chosen masjid
-  /// **off** leaves nothing armed until another is chosen. Written even when
+  /// Turns one masjid's alerts on or off for this account. Written even when
   /// `on` is the default, so the switch's state survives a profile reload.
   void setFavAlert(String masjidId, bool on) {
     _favAlerts[masjidId] = on;
-    _put((SharedPreferences p) => p.setBool(_key('$kFavAlertKeyPrefix$masjidId'), on));
-    if (on && _todayBoard != masjidId) {
-      // Switching a masjid on *is* choosing it — including over the
-      // automatic "nearest" answer, which has no id to ring for.
-      setTodayBoard(masjidId);
-      return;
-    }
     notifyListeners();
+    _put((SharedPreferences p) => p.setBool(_key('$kFavAlertKeyPrefix$masjidId'), on));
   }
 
   void setAzanSound(String key) {
     _azanSound = key;
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kAzan), key));
-  }
-
-  /// Stores the path of the Azaan clip the user picked from their own files.
-  /// An empty [path] clears it so the built-in list answers again.
-  void setCustomAzanPath(String path) {
-    _customAzanPath = path.trim();
-    notifyListeners();
-    _put((SharedPreferences p) async {
-      if (_customAzanPath.isEmpty) {
-        await p.remove(_key(_kCustomAzan));
-      } else {
-        await p.setString(_key(_kCustomAzan), _customAzanPath);
-      }
-    });
   }
 
   /// "When will the Azaan play?" — persisted as `azaan_timing_pref`, and pushed to the
@@ -1448,29 +1198,6 @@ class AppSettings extends ChangeNotifier {
     _azaanTiming = kAzaanTimingOptions.contains(key) ? key : kAzaanTimingDefault;
     notifyListeners();
     _put((SharedPreferences p) => p.setString(_key(_kAzaanTiming), _azaanTiming));
-  }
-
-  /// Answers "When will the Azaan play?" for [prayer] alone, from its own
-  /// bell on Home — the door Settings used to hold, one prayer at a time.
-  ///
-  /// An answer equal to the profile's own is *cleared* rather than written:
-  /// a prayer that agrees with the default has no business pinning a copy of
-  /// it, and keeping the map free of agreeable entries is what lets a later
-  /// change to the profile's answer reach that prayer too.
-  void setAzaanTimingFor(String prayer, String key) {
-    if (!kNotifiablePrayers.contains(prayer)) return;
-    final String chosen =
-        kAzaanTimingOptions.contains(key) ? key : kAzaanTimingDefault;
-    if (chosen == _azaanTiming) {
-      if (_azaanTimings.remove(prayer) == null) return;
-    } else {
-      _azaanTimings[prayer] = chosen;
-    }
-    notifyListeners();
-    _put((SharedPreferences p) {
-      if (chosen == _azaanTiming) return p.remove(_key('azantiming_$prayer'));
-      return p.setString(_key('azantiming_$prayer'), chosen);
-    });
   }
 
   /// Takes [defaults] as this profile's starting point, in one write —
