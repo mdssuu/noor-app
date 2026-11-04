@@ -8116,38 +8116,6 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
     super.initState();
     _masjid = widget.masjid;
     _metres = widget.metres;
-    _loadFavouriteState();
-  }
-
-  Future<void> _loadFavouriteState() async {
-    final List<String> ids = await FavouriteStore.cached();
-    if (!mounted) return;
-    setState(() {
-      _favourite = ids.contains(_masjid.id);
-      _favouriteKnown = true;
-    });
-  }
-
-  /// The alert switch itself: on moves the Home pick to this masjid (only one
-  /// masjid rings at a time), then both schedules are rebuilt — the favourite
-  /// pass for the Jamaat alerts and the calculated pass, whose bells follow
-  /// the same board — and the page redraws so the switch shows the new state.
-  Future<void> _setAlert(bool enabled) async {
-    AppSettings.instance.setFavAlert(_masjid.id, enabled);
-    await NotificationService.scheduleFavouriteAlerts();
-    if (mounted) setState(() {});
-  }
-
-  /// Prayers this masjid can actually alert for: switched on in Settings
-  /// *and* carrying a readable time on the board.
-  List<String> _armedPrayers() {
-    final AppSettings settings = AppSettings.instance;
-    return <String>[
-      for (final String key in kNotifiablePrayers)
-        if (settings.notifyOnFor(key) &&
-            NotificationService.parseClockTime(_masjid.timeFor(key)) != null)
-          prayerByKey(key).label,
-    ];
   }
 
   /// All three ways in — live camera, a gallery photo, or typing the times by
@@ -8591,59 +8559,6 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                                 ),
                               ),
                             ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-                  SectionHeader(title: ‘Prayer alerts’),
-                  GoldCard(
-                    padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        SwitchListTile(
-                          value: _favourite && AppSettings.instance.favAlertFor(_masjid.id),
-                          onChanged: _favourite ? _setAlert : null,
-                          activeThumbColor: NoorColors.emerald,
-                          title: Text(
-                            ‘Alert me at this masjid’,
-                            style: GoogleFonts.outfit(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: NoorColors.onGlass),
-                          ),
-                          subtitle: Text(
-                            !_favouriteKnown
-                                ? ‘Checking your favourites...’
-                                : !_favourite
-                                    ? ‘Star this masjid first — then Noor can remind you ‘
-                                        ‘at the Jamaat times shown above.’
-                                    : AppSettings.instance.favAlertFor(_masjid.id)
-                                        ? ‘Alerting here — the azan, reminders and Jamaat ‘
-                                            ‘alerts all follow this masjid\’s Home pick.’
-                                        : ‘Off — Home is alerting for another masjid. ‘
-                                            ‘Switching this on moves it here.’,
-                            style: GoogleFonts.outfit(
-                                fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
-                          ),
-                        ),
-                        if (_favourite && AppSettings.instance.favAlertFor(_masjid.id)) ...<Widget>[
-                          Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                            child: Text(
-                              _armedPrayers().isEmpty
-                                  ? ‘Nothing armed yet — switch on at least one prayer in ‘
-                                      ‘Settings, and make sure this board has that time.’
-                                  : ‘Armed for ${_armedPrayers().join(\’, \’)}. ‘
-                                      ‘Which prayers fire, and whether they fire exactly on ‘
-                                      ‘the Jamaat time or minutes before, is set in Settings.’,
-                              style: GoogleFonts.outfit(
-                                  fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.5),
-                            ),
                           ),
                         ],
                       ],
