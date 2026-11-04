@@ -2970,15 +2970,30 @@ class NotificationService {
 
     final List<String> favourites = (await FavouriteStore.cached())..sort();
 
-    // Read every switched-on board before touching the schedule. A doc that
-    // will not come back — offline, deleted, a slow backend — aborts the pass
+    // Exactly one masjid rings: the one Home quotes and this account has not
+    // switched off. Resolved before the reads because there is nothing else
+    // to read — a star alone arms nothing.
+    final String chosen = settings.todayBoardId;
+    final bool chosenRings =
+        armsJamaat && favourites.contains(chosen) && settings.favAlertFor(chosen);
+    if (armsJamaat) {
+      if (chosen.isEmpty) {
+        debugPrint('Azan ▸ no masjid selected on Home — nothing scheduled');
+      } else if (!chosenRings) {
+        debugPrint('Azan ▸ $chosen is not the alerting masjid on Home '
+            '(un-starred or switched off) — nothing scheduled');
+      }
+    }
+
+    // Read the alerting board before touching the schedule. A doc that will
+    // not come back — offline, deleted, a slow backend — aborts the pass
     // with yesterday's alerts still armed. A stale reminder beats a missing
     // one, and the next successful pass puts it right.
     final List<({int index, String masjidId, Map<String, dynamic> data})> resolved = [];
-    if (armsJamaat) {
+    if (chosenRings) {
       for (int i = 0; i < favourites.length; i++) {
         final String masjidId = favourites[i];
-        if (!settings.favAlertFor(masjidId)) continue;
+        if (masjidId != chosen) continue;
 
         final ({Map<String, dynamic>? data, bool transientFailure}) read =
             await _fetchMasjid(masjidId);
@@ -3030,33 +3045,17 @@ class NotificationService {
 
     if (!armsJamaat) return;
 
-    if (resolved.isEmpty) {
-      debugPrint('Azan ▸ no readable, switched-on favourite to alert for');
-      return;
-    }
-
-    // The Azaan belongs to exactly one masjid: the one the Home card names in
-    // "Jamaat times from …" (`todayBoardId`). There is no nearest-star
-    // fallback here — if no masjid is selected, or the stored pick has lost
-    // its star, nothing is armed. The star and the choice are one answer, so
-    // a stale pick is cleared on the way out.
-    final String chosen = settings.todayBoardId;
-    if (chosen.isEmpty) {
-      debugPrint('Azan ▸ no masjid selected on Home — nothing scheduled');
-      return;
-    }
-    if (!favourites.contains(chosen)) {
+    // A pick whose star has gone must not survive this pass — the star and
+    // the alert are one answer.
+    if (chosen.isNotEmpty && !favourites.contains(chosen)) {
       debugPrint('Azan ▸ chosen masjid $chosen is not starred — clearing '
           'the choice and scheduling nothing');
       settings.setTodayBoard('');
       return;
     }
-    final int pick = resolved.indexWhere(
-        (({int index, String masjidId, Map<String, dynamic> data}) e) =>
-            e.masjidId == chosen);
-    if (pick < 0) {
-      debugPrint('Azan ▸ $chosen is the chosen masjid but its alerts are '
-          'off — nothing scheduled');
+
+    if (resolved.isEmpty) {
+      debugPrint('Azan ▸ no readable masjid to alert for');
       return;
     }
 
@@ -3064,7 +3063,7 @@ class NotificationService {
     int armed = 0;
 
     final ({int index, String masjidId, Map<String, dynamic> data}) entry =
-        resolved[pick];
+        resolved.first;
     final Map<String, dynamic> data = entry.data;
     final int i = entry.index;
 
@@ -8058,7 +8057,10 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
     });
   }
 
-  /// The alert switch itself: one preference per masjid, then re-arm.
+  /// The alert switch itself: on moves the Home pick to this masjid (only one
+  /// masjid rings at a time), then both schedules are rebuilt — the favourite
+  /// pass for the Jamaat alerts and the calculated pass, whose bells follow
+  /// the same board — and the page redraws so the switch shows the new state.
   Future<void> _setAlert(bool enabled) async {
     AppSettings.instance.setFavAlert(_masjid.id, enabled);
     await NotificationService.scheduleFavouriteAlerts();
@@ -8549,8 +8551,10 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                                     ? 'Star this masjid first — then Noor can remind you '
                                         'at the Jamaat times shown above.'
                                     : AppSettings.instance.favAlertFor(_masjid.id)
-                                        ? 'A reminder at every Jamaat time on this board.'
-                                        : 'Off for this masjid.',
+                                        ? 'Alerting here — the azan, reminders and Jamaat '
+                                            'alerts all follow this masjid’s Home pick.'
+                                        : 'Off — Home is alerting for another masjid. '
+                                            'Switching this on moves it here.',
                             style: GoogleFonts.outfit(
                                 fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
                           ),

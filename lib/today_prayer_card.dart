@@ -1059,6 +1059,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   /// Offered for every starred masjid plus the automatic answer, so a choice
   /// made on a whim is as easy to undo as it was to make.
   Future<void> _chooseBoard(BuildContext context) async {
+    final String before = AppSettings.instance.todayBoardId;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: NoorColors.white,
@@ -1125,6 +1126,13 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
         );
       },
     );
+    // The pick is also the one masjid that rings (see
+    // [AppSettings.favAlertFor]), so a different masjid here has to re-arm
+    // the favourites, not just redraw the card — otherwise yesterday's
+    // masjid keeps its Jamaat alarms while the card names a new one.
+    if (AppSettings.instance.todayBoardId != before) {
+      await NotificationService.scheduleFavouriteAlerts();
+    }
   }
 
   Widget _boardOption({

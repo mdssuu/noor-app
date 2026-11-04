@@ -91,8 +91,9 @@ void main() {
       final AppSettings settings = AppSettings.instance;
 
       await settings.useProfile('alert-uid-a');
-      // A starred masjid is one you asked to hear from, so it starts on and
-      // only the switch can turn it off.
+      // The chosen masjid starts on without any stored answer, and only the
+      // switch can turn it off.
+      settings.setStarredSelection('masjid-x', true);
       expect(settings.favAlertFor('masjid-x'), isTrue);
       expect(settings.favAlertMasjidIds(), isEmpty);
 
@@ -100,18 +101,54 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       await settings.useProfile('alert-uid-b');
+      // The other account chose nothing, so nothing of A's rings there.
+      settings.setStarredSelection('masjid-x', true);
       expect(settings.favAlertFor('masjid-x'), isTrue);
       expect(settings.favAlertMasjidIds(), isEmpty);
 
       await settings.useProfile('alert-uid-a');
+      expect(settings.todayBoardId, 'masjid-x');
       expect(settings.favAlertFor('masjid-x'), isFalse);
       expect(settings.favAlertMasjidIds(), contains('masjid-x'));
 
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool(AppSettings.scopedKeyFor('favalert::masjid-x', 'alert-uid-a')), false);
+      expect(prefs.getString(AppSettings.scopedKeyFor('today_board_pref', 'alert-uid-a')),
+          'masjid-x');
       // ...and the key itself never sits device-wide where anyone could pick
       // it up, which is exactly how the original leak happened.
       expect(prefs.containsKey('favalert::masjid-x'), isFalse);
+    });
+
+    test('only the masjid chosen on Home may ring', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('one-masjid-uid');
+      // Three stars, one alert: the star alone arms nothing — the Home pick
+      // is the one masjid whose azan, notification and Jamaat alert fire.
+      settings.setStarredSelection('masjid-a', true);
+      settings.setStarredSelection('masjid-b', true);
+      settings.setTodayBoard('masjid-a');
+      expect(settings.favAlertFor('masjid-a'), isTrue);
+      expect(settings.favAlertFor('masjid-b'), isFalse);
+
+      // Turning it on for a second starred masjid moves the alert there,
+      // and the first one goes quiet without a second tap.
+      settings.setTodayBoard('masjid-b');
+      expect(settings.favAlertFor('masjid-a'), isFalse);
+      expect(settings.favAlertFor('masjid-b'), isTrue);
+
+      // Switching the chosen masjid off leaves nothing ringing at all.
+      settings.setFavAlert('masjid-b', false);
+      expect(settings.favAlertFor('masjid-b'), isFalse);
+
+      // Switching a masjid on picks it, even from the automatic answer.
+      settings.setTodayBoard('');
+      expect(settings.favAlertFor('masjid-a'), isFalse);
+      settings.setFavAlert('masjid-a', true);
+      expect(settings.todayBoardId, 'masjid-a');
+      expect(settings.favAlertFor('masjid-a'), isTrue);
     });
 
     test('the timing choice is per account too', () async {

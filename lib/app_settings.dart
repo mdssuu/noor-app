@@ -783,9 +783,10 @@ class AppSettings extends ChangeNotifier {
 
   /// masjid id → whether this account wants alerts from that masjid.
   ///
-  /// Absent means **on**: a masjid you starred is one you asked to hear from,
-  /// so the switch that exists on its page and in Settings is there to opt
-  /// out rather than in.
+  /// One masjid rings at a time, so this is kept in step with [todayBoardId]:
+  /// "Alert me at this masjid" switched on for a masjid makes it the chosen
+  /// one, and switching it off for the chosen one leaves nothing armed.
+  /// Absent reads **on** only while that masjid is the chosen one.
   final Map<String, bool> _favAlerts = <String, bool>{};
 
   /// masjid id → the Azaan clip its own reminders recite.
@@ -897,7 +898,18 @@ class AppSettings extends ChangeNotifier {
   int notifyOffsetFor(String prayer) => _notifyOffsets[prayer] ?? -1;
   bool notifyOnFor(String prayer) => _notifyOn[prayer] ?? true;
   String favModeFor(String prayer) => _favModes[prayer] ?? kFavModeAt;
-  bool favAlertFor(String masjidId) => _favAlerts[masjidId] ?? true;
+
+  /// Whether [masjidId] is the one masjid this account is alerted for.
+  ///
+  /// There is exactly one such masjid — the one the Home card quotes
+  /// ([todayBoardId]) — so the answer is decided by the choice, never by the
+  /// star alone: a second starred masjid is *not* on by default. An explicit
+  /// "off" on the chosen masjid is the only other way this reads false, and
+  /// an empty [todayBoardId] (the automatic answer) rings nothing.
+  bool favAlertFor(String masjidId) =>
+      masjidId.isNotEmpty &&
+      masjidId == _todayBoard &&
+      (_favAlerts[masjidId] ?? true);
 
   /// The clip [masjidId]'s reminders recite.
   ///
@@ -1252,6 +1264,11 @@ class AppSettings extends ChangeNotifier {
 
   /// Chooses whose board the Today card quotes; `''` hands it back to the
   /// automatic answer, whichever starred masjid is nearest.
+  ///
+  /// The choice is also the one-masjid alert switch: whichever masjid is
+  /// quoted is the one whose Jamaat alerts arm (see [favAlertFor]), and the
+  /// others go quiet — so a pick here is the same answer as "Alert me at this
+  /// masjid" on the masjid's own page.
   void setTodayBoard(String masjidId) {
     _todayBoard = masjidId;
     notifyListeners();
@@ -1382,12 +1399,24 @@ class AppSettings extends ChangeNotifier {
     _put((SharedPreferences p) => p.setString(_key('favmode_$prayer'), mode));
   }
 
-  /// Turns one masjid's alerts on or off for this account. Written even when
+  /// Turns one masjid's alerts on or off for this account.
+  ///
+  /// Only one masjid may be alerted for, so switching one **on** also hands it
+  /// the Home choice ([setTodayBoard]) — the azan, the notification and the
+  /// Jamaat alert all follow the same board, and the masjid that was on
+  /// before goes quiet without a second tap. Switching the chosen masjid
+  /// **off** leaves nothing armed until another is chosen. Written even when
   /// `on` is the default, so the switch's state survives a profile reload.
   void setFavAlert(String masjidId, bool on) {
     _favAlerts[masjidId] = on;
-    notifyListeners();
     _put((SharedPreferences p) => p.setBool(_key('$kFavAlertKeyPrefix$masjidId'), on));
+    if (on && _todayBoard != masjidId) {
+      // Switching a masjid on *is* choosing it — including over the
+      // automatic "nearest" answer, which has no id to ring for.
+      setTodayBoard(masjidId);
+      return;
+    }
+    notifyListeners();
   }
 
   void setAzanSound(String key) {
