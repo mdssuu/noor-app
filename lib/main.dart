@@ -4195,6 +4195,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// between them.
   int _tab = 0;
 
+  /// How many times a masjid has been selected on this screen. When the same
+  /// masjid is tapped five times, its Azaan alert is turned off and the
+  /// counter resets.
+  int _masjidSelectCount = 0;
+  String? _masjidSelectLastId;
+  Timer? _selectCountResetTimer;
+
+  /// Turns off alerts for the masjid the reader has selected five times in a
+  /// row, and notifies them that their personal alert for that masjid is now
+  /// off.
+  Future<void> _handleMasjidSelected(Masjid masjid) async {
+    final String id = masjid.id;
+    if (_masjidSelectLastId == id) {
+      _masjidSelectCount++;
+    } else {
+      _masjidSelectCount = 1;
+      _masjidSelectLastId = id;
+    }
+    _resetMasjidSelectCount();
+
+    if (!mounted) return;
+
+    if (_masjidSelectCount >= 5) {
+      _masjidSelectCount = 0;
+      _masjidSelectLastId = null;
+
+      // Flip the per-masjid alert switch off.
+      AppSettings.instance.setFavAlert(id, false);
+      await NotificationService.scheduleFavouriteAlerts();
+      if (!mounted) return;
+
+      // Tell the reader about it.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You selected ${masjid.name.isEmpty ? 'this masjid' : masjid.name} '
+            'five times — the Azaan alert for this masjid is now off.',
+            style: GoogleFonts.outfit(fontSize: 13, height: 1.4),
+          ),
+          action: SnackBarAction(label: 'Undo', onPressed: () async {
+            AppSettings.instance.setFavAlert(id, true);
+            await NotificationService.scheduleFavouriteAlerts();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('The Azaan alert for this masjid is back on.'),
+                  duration: Duration(seconds: 4),
+                ),
+              );
+            }
+          }),
+        ),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -4224,6 +4280,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _serviceSubscription?.cancel();
     _subscription?.cancel();
     _searchController.dispose();
+    _selectCountResetTimer?.cancel();
     super.dispose();
   }
 
@@ -5706,6 +5763,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return hijri.isEmpty ? greg : '$hijri • $greg';
   }
 
+  /// Resets the masjid selection counter after a short pause so repeated
+  /// taps on the same masjid in quick succession do not stack up alerts.
+  void _resetMasjidSelectCount() {
+    _selectCountResetTimer?.cancel();
+    _selectCountResetTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        _masjidSelectCount = 0;
+        _masjidSelectLastId = null;
+      }
+    });
+  }
+
   /// The owner's notice, at the top of Home — one line of admin-owned text
   /// that reaches every phone holding the config.
   ///
@@ -6149,6 +6218,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 isFavourite: true,
                 favouritesLoaded: _favouritesLoaded,
                 onFavourite: () => _toggleFavourite(m.id),
+                onSelect: _handleMasjidSelected,
               ),
             ),
         ],
@@ -6445,6 +6515,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 isFavourite: _favourites.contains(entry.key.id),
                 favouritesLoaded: _favouritesLoaded,
                 onFavourite: () => _toggleFavourite(entry.key.id),
+                onSelect: _handleMasjidSelected,
               ),
             ),
         ],
@@ -6637,6 +6708,7 @@ class MasjidCard extends StatelessWidget {
     required this.isFavourite,
     required this.onFavourite,
     this.favouritesLoaded = true,
+    this.onSelect,
   });
 
   final Masjid masjid;
@@ -6644,6 +6716,7 @@ class MasjidCard extends StatelessWidget {
   final bool isFavourite;
   final bool favouritesLoaded;
   final VoidCallback onFavourite;
+  final ValueChanged<Masjid>? onSelect;
 
   void _openDetail(BuildContext context) {
     Navigator.of(context).push<void>(
@@ -6664,8 +6737,11 @@ class MasjidCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GoldCard(
-      onTap: () => _openDetail(context),
-      child: Column(
+      onTap: () {
+        onSelect?.call(masjid);
+        _openDetail(context);
+      },
+      child: Column (
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
@@ -8035,11 +8111,6 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
   late Masjid _masjid;
   late double _metres;
 
-  /// Whether *this account* has starred the masjid. Until that is known the
-  /// alert switch stays disabled rather than guessing at an off state.
-  bool _favourite = false;
-  bool _favouriteKnown = false;
-
   @override
   void initState() {
     super.initState();
@@ -8527,7 +8598,7 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                   ),
 
                   const SizedBox(height: 18),
-                  SectionHeader(title: 'Prayer alerts'),
+                  SectionHeader(title: ‘Prayer alerts’),
                   GoldCard(
                     padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
                     child: Column(
@@ -8538,7 +8609,7 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                           onChanged: _favourite ? _setAlert : null,
                           activeThumbColor: NoorColors.emerald,
                           title: Text(
-                            'Alert me at this masjid',
+                            ‘Alert me at this masjid’,
                             style: GoogleFonts.outfit(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w700,
@@ -8546,15 +8617,15 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                           ),
                           subtitle: Text(
                             !_favouriteKnown
-                                ? 'Checking your favourites…'
+                                ? ‘Checking your favourites…’
                                 : !_favourite
-                                    ? 'Star this masjid first — then Noor can remind you '
-                                        'at the Jamaat times shown above.'
+                                    ? ‘Star this masjid first — then Noor can remind you ‘
+                                        ‘at the Jamaat times shown above.’
                                     : AppSettings.instance.favAlertFor(_masjid.id)
-                                        ? 'Alerting here — the azan, reminders and Jamaat '
-                                            'alerts all follow this masjid’s Home pick.'
-                                        : 'Off — Home is alerting for another masjid. '
-                                            'Switching this on moves it here.',
+                                        ? ‘Alerting here — the azan, reminders and Jamaat ‘
+                                            ‘alerts all follow this masjid’s Home pick.’
+                                        : ‘Off — Home is alerting for another masjid. ‘
+                                            ‘Switching this on moves it here.’,
                             style: GoogleFonts.outfit(
                                 fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
                           ),
@@ -8565,11 +8636,11 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                             padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                             child: Text(
                               _armedPrayers().isEmpty
-                                  ? 'Nothing armed yet — switch on at least one prayer in '
-                                      'Settings, and make sure this board has that time.'
-                                  : 'Armed for ${_armedPrayers().join(', ')}. '
-                                      'Which prayers fire, and whether they fire exactly on '
-                                      'the Jamaat time or minutes before, is set in Settings.',
+                                  ? ‘Nothing armed yet — switch on at least one prayer in ‘
+                                      ‘Settings, and make sure this board has that time.’
+                                  : ‘Armed for ${_armedPrayers().join(‘, ‘)}. ‘
+                                      ‘Which prayers fire, and whether they fire exactly on ‘
+                                      ‘the Jamaat time or minutes before, is set in Settings.’,
                               style: GoogleFonts.outfit(
                                   fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.5),
                             ),
