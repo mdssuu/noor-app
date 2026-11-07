@@ -5742,7 +5742,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     _position?.longitude ?? LocationService.fallbackAnchor.y,
               )),
               onOpenTasbeeh: () => _openTool(const TasbeehScreen()),
-              onOpenTracker: () => _openTool(const TrackerScreen()),
+              onOpenCalendar: () => _openTool(const TrackerScreen()),
             ),
 
             // Always present — even with zero masjids in the collection.
