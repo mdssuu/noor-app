@@ -95,6 +95,9 @@ dependencies:
   url_launcher: ^6.3.1
   flutter_inappwebview: ^6.1.5
 
+  # --- Image watermarking for photo proof verification ---
+  image: ^4.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

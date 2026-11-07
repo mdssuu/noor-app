@@ -24,6 +24,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' show ImageFilter, PlatformDispatcher;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -37,6 +38,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image/image.dart' as img;
 import 'package:hijri/hijri_calendar.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -61,12 +63,14 @@ import 'screens/onboarding_screen.dart';
 import 'screens/qibla_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/tasbeeh_screen.dart';
+import 'screens/tracker_screen.dart';
 import 'services/azaan_alarm.dart';
 import 'services/app_config.dart';
 import 'services/azan_player.dart';
 import 'services/gemini_ocr_service.dart';
 import 'services/islamic_calendar.dart';
 import 'services/places_service.dart';
+import 'services/prayer_tracker.dart';
 import 'services/prayer_widget.dart';
 import 'services/tasbeeh.dart';
 import 'today_prayer_card.dart';
@@ -1160,9 +1164,84 @@ String formatPlacemark(geocoding.Placemark place) {
   return parts.join(', ');
 }
 
+
+/// Add watermark to photo proof with masjid name and prayer times.
+/// This ensures photo proof cannot be arbitrary - it must show the board context.
+Future<Uint8List?> addPhotoWatermark({
+  required String photoPath,
+  required String masjidName,
+  required Map<String, String> prayerTimes,
+}) async {
+  try {
+    final File photoFile = File(photoPath);
+    if (!await photoFile.exists()) return null;
+
+    final Uint8List imageData = await photoFile.readAsBytes();
+    final img.Image? image = img.decodeImage(imageData);
+    if (image == null) return null;
+
+    final List<String> timesList = <String>[
+      'Fajr: ${prayerTimes['fajr'] ?? '—'}',
+      'Dhuhr: ${prayerTimes['dhuhr'] ?? '—'}',
+      'Asr: ${prayerTimes['asr'] ?? '—'}',
+    ];
+    const int overlayHeight = 90;
+    final int startY = image.height - overlayHeight;
+
+    img.fillRect(
+      image,
+      x1: 0,
+      y1: startY,
+      x2: image.width,
+      y2: image.height,
+      color: img.ColorRgba8(0, 0, 0, 180),
+    );
+    img.drawString(
+      image,
+      masjidName.length > 30 ? '${masjidName.substring(0, 27)}...' : masjidName,
+      font: img.arial48,
+      x: 10,
+      y: startY + 8,
+      color: img.ColorRgba8(255, 255, 255, 255),
+    );
+    final String timesText = timesList.join(' • ');
+    img.drawString(
+      image,
+      timesText.length > 50 ? '${timesText.substring(0, 47)}...' : timesText,
+      font: img.arial24,
+      x: 10,
+      y: startY + 58,
+      color: img.ColorRgba8(215, 184, 153, 255),
+    );
+
+    final Uint8List watermarkedBytes = Uint8List.fromList(
+      img.encodeJpg(image, quality: 90),
+    );
+    debugPrint('Noor ▸ watermark added to photo (${watermarkedBytes.lengthInBytes} bytes)');
+    return watermarkedBytes;
+  } catch (error) {
+    debugPrint('Noor ▸ watermark failed: $error');
+    return null;
+  }
+}
+
 // ===========================================================================
 //  DOMAIN MODEL
 // ===========================================================================
+
+/// Maghrib is an Awwal-waqt prayer in Noor: sunset plus two minutes. It is
+/// calculated from the masjid's coordinates, so OCR/manual board edits cannot
+/// replace either the displayed Maghrib or its Jamaat value.
+String calculatedMaghribTime(double latitude, double longitude) {
+  final LocalPrayerTimes day = AppSettings.instance.compute(
+    latitude: latitude,
+    longitude: longitude,
+  );
+  final DateTime? sunset = day.times['sunset'];
+  if (sunset == null) return '--:--';
+  final DateTime maghrib = sunset.add(const Duration(minutes: 2));
+  return DateFormat('HH:mm').format(maghrib);
+}
 
 class Masjid {
   const Masjid({
@@ -1281,7 +1360,9 @@ class Masjid {
       case 'asr':
         return asr;
       case 'maghrib':
-        return maghrib;
+        // Maghrib is never a board/Jamaat time in Noor. It always begins at
+        // Awwal waqt: two minutes after the calculated sunset for this masjid.
+        return calculatedMaghribTime(latitude, longitude);
       case 'isha':
         return isha;
       case 'juma':
@@ -2003,106 +2084,6 @@ Future<ScanSource?> askScanSource(BuildContext context, {bool allowManual = true
 }
 
 // ===========================================================================
-//  NOTIFICATION CHANNEL
-// ===========================================================================
-//
-// The Azaan bell's reminder notification must sound like the azan the reader
-// chose.  Android freezes a channel's sound the moment it is created, so every
-// time the profile's azan clip changes (or a bell is switched to Azaan) this
-// side deletes the old `azan_reminders_v2` channel and recreates it with the
-// clip's row from the phone's own MediaStore ringtone list as its sound and
-// `USAGE_NOTIFICATION_RINGTONE` as its audio attributes.  The recitation
-// itself still rides the native ringer stream — this is only the tone the
-// banner carries.
-//
-// A bell on `silent` is the only case that stays quiet: it uses the channel
-// the receiver already posts on with the system default sound, and nothing
-// here touches that.  A bell off, or a profile that asked for no sound,
-// likewise never reaches this.
-class NoorAzanChannel {
-  NoorAzanChannel._();
-
-  /// The shared id (`azan_reminders_v2`) that [NotificationService] and the
-  /// Kotlin `PrayerCard` use for the Azaan reminders.  One object, one channel,
-  /// one owner — the Kotlin card never posts on this id except as a fallback.
-  static const String channelId = 'azan_reminders_v2';
-
-  /// Rebuilds the shared Azaan channel with the reader's current azan as the
-  /// tone.  Safe to call on every change: the channel is dropped and a fresh
-  /// one takes its place, so going forward the shade always rings with the
-  /// clip the reader just picked.
-  ///
-  /// `azanSoundKey` is the stored clip key (`makkah` / `madina` / `mishary` /
-  /// `beep` / `custom` / `silent`).  A bundled clip is exported to the phone's
-  /// own ringtone list the first time it is picked (the Settings row does this
-  /// and returns the MediaStore URI); a custom file goes through the same
-  /// door.  Pre-Q phones cannot hand a custom URI to `setSound`, so there we
-  /// fall back to the system default rather than leave the reminder silent.
-  static Future<void> apply(String azanSoundKey) async {
-    if (!Platform.isAndroid) return;
-
-    final AndroidFlutterLocalNotificationsPlugin? android =
-        NotificationService.plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-    if (android == null) return;
-
-    try {
-      await android.deleteNotificationChannel(channelId: channelId);
-    } catch (error) {
-      debugPrint(
-          'Noor ▸ could not drop the old Azaan channel $channelId: $error');
-    }
-
-    // Export the clip (idempotent) and grab the URI it landed at.  For a
-    // bundled clip this is a second trip to the ringtone list, which is
-    // exactly what the existing "Add to phone ringtone" row does anyway.
-    final ({bool added, String code, String? uri}) placed =
-        await AzaanAlarm.addToPhoneRingtone(
-      azanSoundKey,
-      'Noor Azaan - ${_label(azanSoundKey)}',
-    );
-    if (placed.code != 'ok') return;
-
-    final Uri? sound = placed.uri == null ? null : Uri.parse(placed.uri!);
-    if (sound == null) return;
-
-    try {
-      await android.createNotificationChannel(
-        AndroidNotificationChannel(
-          channelId,
-          'Azan Reminders',
-          description: 'A reminder at each of the five daily prayer times',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: true,
-          enableLights: true,
-          ledColor: const Color(0xFF0A4D3C),
-          sound: UriAndroidNotificationSound(sound.toString()),
-          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
-        ),
-      );
-      debugPrint(
-        'Noor ▸ Azaan channel $channelId ready — tone is the chosen azan',
-      );
-    } catch (error) {
-      debugPrint('Noor ▸ could not create the Azaan channel: $error');
-    }
-  }
-
-  /// A short name for the clip, used only to build the ringtone row's
-  /// `DISPLAY_NAME`.  It is also what the receiver logs for the user to
-  /// recognise; leave it in sync with the title above if you change a label.
-  static String _label(String key) => _labels[key] ?? key;
-
-  static Map<String, String> get _labels => <String, String>{
-        'makkah': 'Azaan 1 (Makkah)',
-        'madina': 'Azaan 2 (Madinah)',
-        'mishary': 'Azaan 3 (Mishary Rashid Alafasy)',
-        'beep': 'Simple Beep',
-      };
-}
-
-// ===========================================================================
 //  SERVICES
 // ===========================================================================
 
@@ -2138,20 +2119,14 @@ class NotificationService {
   static const String _azanChannelDescription =
       'A reminder at each of the five daily prayer times';
 
-  /// The prohibited-time banners' own channel, so each half can be silenced
-  /// alone: a reader who has had enough of prayer reminders still wants to
-  /// know the moment salah becomes prohibited, and one who wants that warning
-  /// must not have to keep the Azaan ringtone on to get it.
+  /// The zawal banner's own channel, so each half can be silenced alone:
+  /// a reader who has had enough of prayer reminders still wants to know the
+  /// moment salah becomes prohibited, and one who wants that warning must not
+  /// have to keep the Azaan ringtone on to get it.
   static const String _makruhChannelId = 'makruh_alerts';
   static const String _makruhChannelName = 'Prohibited Time';
   static const String _makruhChannelDescription =
-      'Alerts when a makruh window opens — at sunrise and at zawal, when salah is prohibited';
-
-  /// Silent azaan notification channel: notifications without the azaan sound
-  static const String _silentAzanChannelId = 'silent_azan_reminders_v2';
-  static const String _silentAzanChannelName = 'Silent Azan Reminders';
-  static const String _silentAzanChannelDescription =
-      'A reminder at each of the five daily prayer times (silent - no azaan sound)';
+      'Alerts when the makruh (zawal) window opens — salah is prohibited until Dhuhr';
 
   /// The banner is the only voice this alert has — there is no recitation
   /// behind it, so the channel's own sound is the whole notification.
@@ -2180,22 +2155,12 @@ class NotificationService {
   /// even when the profile's global
   /// pick is "None (silent)" — the reader opted this prayer in, so the
   /// built-in Makkah clip stands in rather than leaving a silent azan.
-  static AzanSound _bellSound(String prayer, [String masjidId = '']) {
+  static AzanSound _bellSound(String prayer) {
     if (AppSettings.instance.bellModeFor(prayer) != kBellAzan) {
       return azanSoundByKey('silent');
     }
-    final AppSettings settings = AppSettings.instance;
-    final AzanSound chosen = azanSoundByKey(settings.azanSoundForMasjid(masjidId));
-    // A profile whose *own* pick is "None (silent)" still gets the built-in
-    // clip for a bell the reader explicitly switched to Azaan: the bell is a
-    // per-prayer opt-in, and leaving it silent would answer that opt-in with
-    // nothing. A masjid with a clip of its own is different — that is an
-    // answer about *this* masjid, so its "None" is honoured.
-    if (chosen.key == 'silent' &&
-        settings.azanSoundForMasjid(masjidId) == settings.azanSound) {
-      return azanSoundByKey('makkah');
-    }
-    return chosen;
+    final AzanSound global = _azanSound;
+    return global.key == 'silent' ? azanSoundByKey('makkah') : global;
   }
 
   /// The `raw` an alarm carries when its bell has no clip of its own: the
@@ -2206,33 +2171,14 @@ class NotificationService {
   /// "the profile asked for no sound" with the same word.
   static const String _silentRaw = 'silent';
 
-  /// The `raw` string [prayer]'s alarm carries, which the Kotlin side reads
-  /// as a file name.
-  ///
-  /// A bundled clip names its `res/raw` resource (`azaan1`, `beep`, …), and
-  /// the reader's own clip names the file copied into `filesDir` when it was
-  /// picked — `azaan_custom.clip`, i.e. the sound key `custom`. That is the
-  /// whole of the custom door: the scheduler never has to open the file, it
-  /// only has to hand the player the name it already knows how to find. A
-  /// muted bell keeps falling back to [_silentRaw], exactly as before, so
-  /// Mute is still a silent alarm rather than a missing one.
-  static String _bellRaw(String prayer, [String masjidId = '']) =>
-      _rawFor(_bellSound(prayer, masjidId));
-
-  /// The same answer for a bare [AzanSound]: the one-shot probes that speak
-  /// for the profile rather than for a prayer arm themselves from here.
-  static String _rawFor(AzanSound sound) {
-    if (sound.key == kCustomAzanKey) return kCustomAzanKey;
-    return sound.androidRaw ?? _silentRaw;
-  }
-
   /// Whether the Kotlin side's card *is* the prayer's notification — so the
   /// Dart banner must not be scheduled at all.
   ///
   /// It is on Android, for **every** armed bell, clip or no clip.
   /// [PrayerCard] owns that card end to end: it posts when the alarm fires,
   /// whether or not the recitation is allowed to sound, and it posts the same
-  /// card again when the clip ends. One owner, one id, one card.
+  /// card again when the clip ends, with `STOP AZAN` in place of
+  /// `Snooze 10 min`. One owner, one id, one card.
   ///
   /// A bell on `silent` used to be the exception — no `androidRaw`, so no
   /// alarm, so the Dart banner was left to speak alone. That made Mute the
@@ -2258,8 +2204,18 @@ class NotificationService {
   static bool receiverOwnsTheCard({bool? android}) =>
       android ?? Platform.isAndroid;
 
+  static AndroidNotificationChannel _azanChannel() => const AndroidNotificationChannel(
+        _azanChannelId,
+        _azanChannelName,
+        description: _azanChannelDescription,
+        importance: Importance.high,
+        playSound: false,
+        enableVibration: true,
+        enableLights: true,
+        ledColor: Color(0xFF0A4D3C),
+      );
+
   static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
-  static FlutterLocalNotificationsPlugin get plugin => _plugin;
 
   /// Notification ids 0..4 are reserved for the five Azan reminders.
   static int _azanId(String prayer) => kNotifiablePrayers.indexOf(prayer);
@@ -2280,17 +2236,6 @@ class NotificationService {
   @visibleForTesting
   static const int makruhId = 5;
 
-  /// The sunrise makruh banner's own id — the same prohibition at the other
-  /// end of the morning, and its own slot so arming one never cancels the
-  /// other. 6 belongs to the silent-Azaan probe, so this takes the next free
-  /// id; both live well under 1000, the favourite block's floor.
-  @visibleForTesting
-  static const int makruhSunriseId = 7;
-
-  /// Silent azaan notification channel id: notifications without the azaan sound
-  @visibleForTesting
-  static const int silentAzanId = 6;
-
   /// Favourite-masjid alerts are allocated from here upwards, ten ids per
   /// masjid so each of the five prayers keeps its own slot. Well clear of the
   /// 0..4 range above, and of the epoch-second ids `show()` uses. The native
@@ -2307,12 +2252,6 @@ class NotificationService {
   /// default keeps the profile's global pick for the one-shot probes that
   /// demonstrate it (the Settings "test reminder", chiefly).
   static NotificationDetails _azanDetails([AzanSound? sound]) {
-    // The sound this reminder carries is decided by the channel, not by the
-    // notification itself: Android freezes a channel's sound at creation, and
-    // the banner cannot change it.  So a notification for a silenced bell
-    // carries no sound (it rides the system default on the receiver's own
-    // channel), and a notification for an Azaan bell rides the clip the
-    // reader chose.
     final AzanSound effective = sound ?? _azanSound;
     final bool audible = effective.key != 'silent';
     return NotificationDetails(
@@ -2323,7 +2262,15 @@ class NotificationService {
         importance: Importance.high,
         priority: Priority.high,
         color: const Color(0xFF0A4D3C),
+        playSound: false,
         enableVibration: true,
+        // "Not now" instead of "never": ten minutes back, from the banner
+        // itself, without opening the app. One shot with a one-shot id, so
+        // it can never take the place of tomorrow's copy of this prayer's
+        // daily reminder.
+        actions: const <AndroidNotificationAction>[
+          AndroidNotificationAction('snooze', 'Snooze 10 min'),
+        ],
       ),
       // iOS only honours a sound that sits in the app bundle, hence the file
       // names shipped under ios/Runner. `presentSound: false` is the only way
@@ -2338,31 +2285,8 @@ class NotificationService {
 
   /// [_azanDetails] tuned to [prayer]'s own bell: `silent` posts a quiet
   /// banner, `azan` carries that prayer's clip.
-  static NotificationDetails _azanDetailsFor(String prayer,
-          [String masjidId = '']) =>
-      _azanDetails(_bellSound(prayer, masjidId));
-
-  /// Silent notification details: no azaan sound played, but notification appears
-  static NotificationDetails _silentAzanDetails() {
-    return NotificationDetails(
-      android: AndroidNotificationDetails(
-        _silentAzanChannelId,
-        _silentAzanChannelName,
-        channelDescription: _silentAzanChannelDescription,
-        importance: Importance.high,
-        priority: Priority.high,
-        color: const Color(0xFF0A4D3C),
-        enableVibration: true,
-        enableLights: true,
-        ledColor: const Color(0xFF0A4D3C),
-        playSound: false,
-      ),
-      iOS: const DarwinNotificationDetails(
-        presentSound: false,
-        sound: null,
-      ),
-    );
-  }
+  static NotificationDetails _azanDetailsFor(String prayer) =>
+      _azanDetails(_bellSound(prayer));
 
   /// Makes sure the silent reminder channel exists — and retires the audible
   /// ones this app used to post the mp3 through.
@@ -2376,9 +2300,43 @@ class NotificationService {
   /// before the first notification is posted and from Settings; a channel
   /// already in place is left alone, so an app opened ten times a day does
   /// nothing ten times.
-  static Future<void> applyAzanChannel(String azanSoundKey) async {
-    if (!Platform.isAndroid) return;
-    await NoorAzanChannel.apply(azanSoundKey);
+  static Future<void> applyAzanChannel() async {
+    final AndroidFlutterLocalNotificationsPlugin? android =
+        _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+
+    bool present = false;
+    try {
+      final List<AndroidNotificationChannel>? channels =
+          await android.getNotificationChannels();
+      for (final AndroidNotificationChannel channel in channels ?? const <AndroidNotificationChannel>[]) {
+        if (channel.id == _azanChannelId) {
+          present = true;
+          continue;
+        }
+        // Anything else under this prefix is one of the old audible channels.
+        if (!channel.id.startsWith('azan_reminders')) continue;
+        try {
+          await android.deleteNotificationChannel(channelId: channel.id);
+          debugPrint('Noor ▸ retired the audible Azaan channel ${channel.id}');
+        } catch (error) {
+          debugPrint('Noor ▸ could not drop the old Azaan channel ${channel.id}: $error');
+        }
+      }
+    } catch (error) {
+      // A missing channel list is not proof the channel is missing — create
+      // is idempotent, so fall through and ask rather than stay silent.
+      debugPrint('Noor ▸ could not read the notification channels: $error');
+    }
+
+    if (present) return;
+    try {
+      await android.createNotificationChannel(_azanChannel());
+      debugPrint('Noor ▸ Azaan channel $_azanChannelId ready (silent banner, '
+          'recitation via the ringer-stream player)');
+    } catch (error) {
+      debugPrint('Noor ▸ could not create the Azaan channel: $error');
+    }
   }
 
   /// Makes sure the zawal channel exists before the first banner is armed.
@@ -2431,50 +2389,6 @@ class NotificationService {
   static bool get timeZoneMoved =>
       _lastScheduleOffset != null && _lastScheduleOffset != DateTime.now().timeZoneOffset;
 
-  /// Schedule a silent azaan notification (notification without sound)
-  static Future<void> scheduleSilentAzan({
-    required String prayer,
-    required DateTime at,
-    required String masjidId,
-  }) async {
-    final String cardTitle = '${prayerByKey(prayer).label} • ${AppSettings.instance.format(at)}';
-    final String cardBody = 'Jamaat at ${masjidId.isEmpty ? 'your masjid' : masjidId}.';
-
-    try {
-      // Only schedule notification (no azaan sound)
-      await _plugin.zonedSchedule(
-        id: silentAzanId,
-        scheduledDate: tz.TZDateTime(
-          tz.local,
-          at.year,
-          at.month,
-          at.day,
-          at.hour,
-          at.minute,
-        ),
-        title: cardTitle,
-        body: cardBody,
-        notificationDetails: _silentAzanDetails(),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.time,
-        payload: 'silent_azan:$prayer',
-      );
-      
-      // Schedule silent azaan alarm (no sound)
-      await AzaanAlarm.schedule(
-        id: silentAzanId,
-        at: at,
-        raw: _silentRaw,
-        title: cardTitle,
-        body: cardBody,
-      );
-      
-      debugPrint('Silent Azan ▸ scheduled notification for $prayer at ${AppSettings.instance.format(at)}');
-    } catch (error) {
-      debugPrint('Noor ▸ silent azaan schedule failed for $prayer: $error');
-    }
-  }
-
   static Future<void> initialise() async {
     const AndroidInitializationSettings android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const DarwinInitializationSettings ios = DarwinInitializationSettings(
@@ -2490,6 +2404,12 @@ class NotificationService {
       ),
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         final String? payload = response.payload;
+        if (response.actionId == 'snooze') {
+          if (payload != null && payload.startsWith('azan:')) {
+            unawaited(snoozeAzan(payload.substring('azan:'.length)));
+          }
+          return;
+        }
         if (payload != null && payload.startsWith('azan:')) {
           // Foreground tap: let the chosen clip actually play. Background
           // playback needs a background isolate, which audioplayers cannot
@@ -2498,7 +2418,6 @@ class NotificationService {
         }
       },
     );
-    await applyAzanChannel(AppSettings.instance.azanSound);
 
     // Create the Android channels explicitly so importance is honoured. The
     // Azaan one is rebuilt from the stored sound selection — this is the
@@ -2506,7 +2425,7 @@ class NotificationService {
     final AndroidFlutterLocalNotificationsPlugin? androidPlugin =
         _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(_channel);
-    await applyAzanChannel(AppSettings.instance.azanSound);
+    await applyAzanChannel();
     await applyMakruhChannel();
     AzaanAlarm.install();
     // The fallback player's callbacks live on the same channel; registering
@@ -2575,7 +2494,6 @@ class NotificationService {
   static Future<void> scheduleAzan({
     required double latitude,
     required double longitude,
-    String masjidId = '',
   }) async {
     await _initTimeZone();
     if (!_tzReady) return;
@@ -2607,23 +2525,21 @@ class NotificationService {
         settings.compute(latitude: effectiveLatitude, longitude: effectiveLongitude);
     final DateTime now = DateTime.now();
 
-    // The prohibited-time banners answer the master switch and nothing else.
-    // They are not an Azaan: "Only at Jamaat time" speaks about when the five
-    // prayers ring, and must not be read as a licence to stay quiet about the
-    // minutes in which salah is prohibited — so they are armed *before* the
-    // gate below, from the same windows Home's red line prints.
+    // The zawal banner answers the master switch and nothing else. It is not
+    // an Azaan: "Only at Jamaat time" speaks about when the five prayers
+    // ring, and must not be read as a licence to stay quiet about the half
+    // hour in which salah is prohibited — so it is armed *before* the gate
+    // below, from the same window Home's red line prints.
     await _scheduleMakruh(day: day, now: now);
 
-    // "When will the Azaan play?" — asked of each prayer now rather than of
-    // the profile: this pass arms the *calculated* (Awwal) reminders for the
-    // prayers whose own bell allows that clock. `cancelAzan()` above has
-    // already retired yesterday's copy of both this block and its
-    // ringer-stream twins, so leaving here is what keeps only the
+    // "When will the Azaan play?" — this pass arms the *calculated* (Awwal) reminders.
+    // `cancelAzan()` above has already retired yesterday's copy of both this
+    // block and its ringer-stream twins, so leaving here is what keeps only the
     // favourite-masjid Jamaat times ringing ("Only at Jamaat time"), and
     // what makes "Band" cancel everything.
-    if (!kNotifiablePrayers.any(settings.schedulesAwwalFor)) {
-      debugPrint('Azan ▸ no prayer asks for the calculated (Awwal) clock: '
-          'calculated reminders cancelled, none scheduled');
+    if (!settings.schedulesAwwal) {
+      debugPrint('Azan ▸ timing "${settings.azaanTiming}": '
+          'calculated (Awwal) reminders cancelled, none scheduled');
       return;
     }
 
@@ -2631,10 +2547,6 @@ class NotificationService {
 
     for (final String key in kNotifiablePrayers) {
       if (!settings.notifyOnFor(key)) continue;
-      // This prayer's own "When will the Azaan play?" decides whether the
-      // calculated clock may ring for it — the profile's answer only stands
-      // in until this prayer's bell says otherwise.
-      if (!settings.schedulesAwwalFor(key)) continue;
       final DateTime? prayerTime = day.times[key];
       if (prayerTime == null) continue;
 
@@ -2669,14 +2581,14 @@ class NotificationService {
       // clip is armed — have to write the same words, or a reader who
       // silences their phone would be told something different from a reader
       // who does not.
+      final AzanSound sound = _bellSound(key);
       final String cardTitle =
           '${prayerByKey(key).label} • ${settings.format(prayerTime)}';
       // This pass is reached only when the *calculated* source is armed
-      // for this prayer (`schedulesAwwalFor`), so the words have to name
-      // that clock. It used to say "at your masjid" — the favourite pass's
-      // own sentence — which in "At both times" mode handed a reader two
-      // cards that named the same prayer twice with two different times
-      // and one identical description.
+      // (`schedulesAwwal`), so the words have to name that clock. It used to
+      // say "at your masjid" — the favourite pass's own sentence — which in
+      // "At both times" mode handed a reader two cards that named the same
+      // prayer twice with two different times and one identical description.
       final String cardBody = minutesBefore < 0
           ? 'It is time for ${prayerByKey(key).label} — Awwal time.'
           : '${prayerByKey(key).label} in $minutesBefore minutes, before '
@@ -2696,7 +2608,7 @@ class NotificationService {
             scheduledDate: when,
             title: cardTitle,
             body: cardBody,
-            notificationDetails: _azanDetailsFor(key, masjidId),
+            notificationDetails: _azanDetailsFor(key),
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             matchDateTimeComponents: DateTimeComponents.time,
             payload: 'azan:$key',
@@ -2712,7 +2624,7 @@ class NotificationService {
               scheduledDate: when,
               title: cardTitle,
               body: cardBody,
-              notificationDetails: _azanDetailsFor(key, masjidId),
+              notificationDetails: _azanDetailsFor(key),
               androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
               matchDateTimeComponents: DateTimeComponents.time,
               payload: 'azan:$key',
@@ -2744,7 +2656,7 @@ class NotificationService {
       await AzaanAlarm.schedule(
         id: _azanId(key),
         at: fire,
-        raw: _bellRaw(key, masjidId),
+        raw: sound.androidRaw ?? _silentRaw,
         title: cardTitle,
         body: cardBody,
       );
@@ -2775,86 +2687,34 @@ class NotificationService {
             '${settings.format(end)}.',
       );
 
-  /// The words the sunrise banner carries.
-  ///
-  /// The same "Prohibited time" phrase as [makruhText], because it is the same
-  /// prohibition at the other end of the morning: from sunrise until the sun
-  /// has cleared the horizon. The window is
-  /// [LocalPrayerTimes.makruhSunriseWindow]'s own, so the banner and the red
-  /// line on Home can never name two different quarters of an hour.
-  @visibleForTesting
-  static ({String title, String body}) makruhSunriseText({
-    required DateTime start,
-    required DateTime end,
-    required AppSettings settings,
-  }) =>
-      (
-        title:
-            'Prohibited time ${settings.format(start)} – ${settings.format(end)}',
-        body: 'The sun is rising — salah is prohibited until it has fully '
-            'risen at ${settings.format(end)}.',
-      );
-
-  /// Arms today's two prohibited-time banners: one at sunrise and one at the
-  /// zawal half hour, each repeating daily on its own wall-clock minute.
+  /// Arms today's zawal banner: one notification at the minute the half hour
+  /// opens, repeating daily on that wall-clock minute.
   ///
   /// Called from every [scheduleAzan] pass and retired by every [cancelAzan]
-  /// one, so the banners keep the same life the five reminders have — a day
+  /// one, so the banner keeps the same life the five reminders have — a day
   /// whose times have drifted a minute is corrected the moment the app is
-  /// next opened, and switching notifications off takes them down with them.
+  /// next opened, and switching notifications off takes it down with them.
   static Future<void> _scheduleMakruh({
     required LocalPrayerTimes day,
     required DateTime now,
   }) async {
-    final ({DateTime start, DateTime end})? sunrise = day.makruhSunriseWindow;
-    if (sunrise != null) {
-      await _scheduleMakruhBanner(
-        id: makruhSunriseId,
-        window: sunrise,
-        words: makruhSunriseText(
-          start: sunrise.start,
-          end: sunrise.end,
-          settings: AppSettings.instance,
-        ),
-        now: now,
-        label: 'sunrise',
-      );
-    }
+    final ({DateTime start, DateTime end})? window = day.makruhWindow;
+    if (window == null) return;
 
-    final ({DateTime start, DateTime end})? zawal = day.makruhWindow;
-    if (zawal != null) {
-      await _scheduleMakruhBanner(
-        id: makruhId,
-        window: zawal,
-        words: makruhText(
-          start: zawal.start,
-          end: zawal.end,
-          settings: AppSettings.instance,
-        ),
-        now: now,
-        label: 'zawal',
-      );
-    }
-  }
-
-  /// Arms one prohibited-time banner from [window].
-  ///
-  /// A window that has already opened today arms *tomorrow's* copy, never a
-  /// duplicate of the one that has just passed — the same roll the five
-  /// reminders make, and for the same reason: a repeating schedule only fires
-  /// forward from its anchor.
-  static Future<void> _scheduleMakruhBanner({
-    required int id,
-    required ({DateTime start, DateTime end}) window,
-    required ({String title, String body}) words,
-    required DateTime now,
-    required String label,
-  }) async {
+    // A window that has already opened today arms *tomorrow's* copy, never a
+    // duplicate of the one that has just passed — the same roll the five
+    // reminders make, and for the same reason: a repeating schedule only
+    // fires forward from its anchor.
     DateTime fire = window.start;
     while (!fire.isAfter(now)) {
       fire = fire.add(const Duration(days: 1));
     }
 
+    final ({String title, String body}) words = makruhText(
+      start: window.start,
+      end: window.end,
+      settings: AppSettings.instance,
+    );
     final tz.TZDateTime when = tz.TZDateTime(
       tz.local,
       fire.year,
@@ -2866,7 +2726,7 @@ class NotificationService {
 
     try {
       await _plugin.zonedSchedule(
-        id: id,
+        id: makruhId,
         scheduledDate: when,
         title: words.title,
         body: words.body,
@@ -2875,14 +2735,14 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time,
         payload: 'makruh',
       );
-      debugPrint('Makruh ▸ $label banner armed for ${words.title}');
+      debugPrint('Makruh ▸ banner armed for ${words.title}');
     } catch (error) {
       // Android 14+ can revoke SCHEDULE_EXACT_ALARM — the inexact alarm may
       // drift by a minute, which still beats never saying so at all.
-      debugPrint('Noor ▸ exact schedule failed for makruh ($label), retrying inexact: $error');
+      debugPrint('Noor ▸ exact schedule failed for makruh, retrying inexact: $error');
       try {
         await _plugin.zonedSchedule(
-          id: id,
+          id: makruhId,
           scheduledDate: when,
           title: words.title,
           body: words.body,
@@ -2892,7 +2752,7 @@ class NotificationService {
           payload: 'makruh',
         );
       } catch (secondError) {
-        debugPrint('Noor ▸ makruh ($label) schedule failed: $secondError');
+        debugPrint('Noor ▸ makruh schedule failed: $secondError');
       }
     }
   }
@@ -2908,14 +2768,74 @@ class NotificationService {
       await AzaanAlarm.cancel(_azanId(key));
     }
     await AzaanAlarm.cancelRange(AzaanAlarm.azanIdFloor, kNotifiablePrayers.length);
-    // The prohibited-time banners are armed by the same pass, so they are
-    // retired by the same pass: a day spent with notifications off must not
-    // leave yesterday's sunrise or half hour ringing from a schedule nobody
-    // re-armed.
+    // The zawal banner is armed by the same pass, so it is retired by the
+    // same pass: a day spent with notifications off must not leave yesterday's
+    // half hour ringing from a schedule nobody re-armed.
     try {
       await _plugin.cancel(id: makruhId);
-      await _plugin.cancel(id: makruhSunriseId);
     } catch (_) {}
+  }
+
+  /// One-shot id for a snoozed reminder — outside the 0..4 daily block
+  /// (those ids return tomorrow) and at or above [_favIdCeiling], which is
+  /// what every favourite-masjid re-arm sweeps clean. 1000000000 itself is
+  /// the Settings test probe, so this sits one above it, and nowhere near
+  /// the epoch-second ids [show] hands out.
+  static const int _snoozeId = 1000000001;
+
+  /// Puts one prayer's reminder back ten minutes, from the banner's own
+  /// action button — no app open, no settings trip, no "I'll remember".
+  ///
+  /// Both halves of the reminder come back: the silent banner through the
+  /// plugin, and the recitation through the ringer-stream player, so a phone
+  /// on vibrate still sounds (that is the whole point of an azan over a
+  /// notification). The banner can be snoozed again — its payload carries
+  /// the same prayer key, and ten minutes is the plugin's *new* one-shot,
+  /// replacing the pending one rather than queueing a second.
+  static Future<void> snoozeAzan(String key) async {
+    if (!kNotifiablePrayers.contains(key)) return;
+    final DateTime at = DateTime.now().add(const Duration(minutes: 10));
+
+    // The snoozed pair is decided the same way as the original: with the
+    // receiver armed, its card at +10 min *is* the snoozed alert, so no
+    // second banner is queued to arrive beside it.
+    final AzanSound sound = _bellSound(key);
+    if (receiverOwnsTheCard()) {
+      debugPrint('Azan ▸ snoozed $key: receiver card stands in for the '
+          'banner — one prayer, one notification');
+    } else {
+      try {
+        await _initTimeZone();
+        await _plugin.zonedSchedule(
+          id: _snoozeId,
+          scheduledDate: tz.TZDateTime.from(at, tz.local),
+          title: 'Snoozed • ${prayerByKey(key).label}',
+          body: 'Ten minutes back, as you asked.',
+          notificationDetails: _azanDetailsFor(key),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          // Tapping the snoozed copy does what the original did: play the clip.
+          payload: 'azan:$key',
+        );
+      } catch (error) {
+        debugPrint('Noor ▸ snooze banner failed: $error');
+      }
+    }
+
+    // The same per-prayer answer the original alarm used: a bell on
+    // `silent` snoozes into silence too, never into a recitation it was
+    // switched away from.
+    try {
+      await AzaanAlarm.schedule(
+        id: _snoozeId,
+        at: at,
+        raw: sound.androidRaw ?? _silentRaw,
+        title: 'Snoozed • ${prayerByKey(key).label}',
+        body: 'Ten minutes back, as you asked.',
+        recurring: false,
+      );
+    } catch (error) {
+      debugPrint('Noor ▸ snooze recitation failed: $error');
+    }
   }
 
   /// Upper bound separating the favourite-masjid id block from the
@@ -2954,15 +2874,12 @@ class NotificationService {
     // offline moment deleted every favourite alert and re-armed none of them:
     // the clear ran, the fetches returned null, and the range was left empty
     // until the user happened to open the app again.
-    final bool anyJamaat =
-        kNotifiablePrayers.any(settings.schedulesJamaatFor);
-    final bool armsJamaat = anyJamaat && settings.notificationsEnabled;
-    if (!anyJamaat) {
+    final bool armsJamaat = settings.schedulesJamaat && settings.notificationsEnabled;
+    if (!settings.schedulesJamaat) {
       // "When will the Azaan play?" — this pass arms the *Jamaat* reminders,
-      // asked per prayer now: returning here is exactly the "Only at Awwal
-      // time" / "Off" half of the fix, where no prayer's own bell allows
-      // the masjid's clock — nothing in the favourite range is left armed.
-      debugPrint('Azan ▸ no prayer asks for the masjid’s Jamaat clock: '
+      // so returning here is exactly the "Only at Awwal time" / "Off" half of
+      // the fix: nothing in the favourite range is left scheduled.
+      debugPrint('Azan ▸ timing "${settings.azaanTiming}": '
           'favourite-masjid Jamaat alerts cancelled, none scheduled');
     } else if (!settings.notificationsEnabled) {
       debugPrint('Azan ▸ favourite masjid alerts: master switch off, none scheduled');
@@ -2970,30 +2887,15 @@ class NotificationService {
 
     final List<String> favourites = (await FavouriteStore.cached())..sort();
 
-    // Exactly one masjid rings: the one Home quotes and this account has not
-    // switched off. Resolved before the reads because there is nothing else
-    // to read — a star alone arms nothing.
-    final String chosen = settings.todayBoardId;
-    final bool chosenRings =
-        armsJamaat && favourites.contains(chosen) && settings.favAlertFor(chosen);
-    if (armsJamaat) {
-      if (chosen.isEmpty) {
-        debugPrint('Azan ▸ no masjid selected on Home — nothing scheduled');
-      } else if (!chosenRings) {
-        debugPrint('Azan ▸ $chosen is not the alerting masjid on Home '
-            '(un-starred or switched off) — nothing scheduled');
-      }
-    }
-
-    // Read the alerting board before touching the schedule. A doc that will
-    // not come back — offline, deleted, a slow backend — aborts the pass
+    // Read every switched-on board before touching the schedule. A doc that
+    // will not come back — offline, deleted, a slow backend — aborts the pass
     // with yesterday's alerts still armed. A stale reminder beats a missing
     // one, and the next successful pass puts it right.
     final List<({int index, String masjidId, Map<String, dynamic> data})> resolved = [];
-    if (chosenRings) {
+    if (armsJamaat) {
       for (int i = 0; i < favourites.length; i++) {
         final String masjidId = favourites[i];
-        if (masjidId != chosen) continue;
+        if (!settings.favAlertFor(masjidId)) continue;
 
         final ({Map<String, dynamic>? data, bool transientFailure}) read =
             await _fetchMasjid(masjidId);
@@ -3014,7 +2916,6 @@ class NotificationService {
           debugPrint('Azan ▸ favourite $masjidId no longer exists in Noor — '
               'un-starring it and carrying on');
           await FavouriteStore.drop(masjidId);
-          if (settings.todayBoardId == masjidId) settings.setTodayBoard('');
           continue;
         }
         resolved.add((index: i, masjidId: masjidId, data: board));
@@ -3045,113 +2946,103 @@ class NotificationService {
 
     if (!armsJamaat) return;
 
-    // A pick whose star has gone must not survive this pass — the star and
-    // the alert are one answer.
-    if (chosen.isNotEmpty && !favourites.contains(chosen)) {
-      debugPrint('Azan ▸ chosen masjid $chosen is not starred — clearing '
-          'the choice and scheduling nothing');
-      settings.setTodayBoard('');
-      return;
-    }
-
-    if (resolved.isEmpty) {
-      debugPrint('Azan ▸ no readable masjid to alert for');
-      return;
-    }
-
     final DateTime now = DateTime.now();
     int armed = 0;
 
-    final ({int index, String masjidId, Map<String, dynamic> data}) entry =
-        resolved.first;
-    final Map<String, dynamic> data = entry.data;
-    final int i = entry.index;
+    for (final ({int index, String masjidId, Map<String, dynamic> data}) entry in resolved) {
+      final Map<String, dynamic> data = entry.data;
+      final int i = entry.index;
 
-    final String name = ((data['masjidName'] as String?) ?? '').trim();
-    final String where = name.isEmpty ? 'your masjid' : name;
-    final int base = _favIdFloor + i * _favIdStride;
+      final String name = ((data['masjidName'] as String?) ?? '').trim();
+      final String where = name.isEmpty ? 'your masjid' : name;
+      final int base = _favIdFloor + i * _favIdStride;
 
-    for (int p = 0; p < kNotifiablePrayers.length; p++) {
-      final String key = kNotifiablePrayers[p];
-      if (!settings.notifyOnFor(key)) continue;
-      // The masjid's clock is this prayer's to allow, same as the
-      // calculated one above — a prayer set to "Only at Awwal time" must
-      // not find its board's Jamaat cell ringing beside it.
-      if (!settings.schedulesJamaatFor(key)) continue;
+      for (int p = 0; p < kNotifiablePrayers.length; p++) {
+        final String key = kNotifiablePrayers[p];
+        if (!settings.notifyOnFor(key)) continue;
 
-      final int? minutesOfDay = parseClockTime((data[key] as String?) ?? '');
-      if (minutesOfDay == null) continue;
+        final String scheduledClock = key == 'maghrib'
+            ? calculatedMaghribTime(
+                (data['latitude'] as num?)?.toDouble() ?? LocationService.fallbackAnchor.x,
+                (data['longitude'] as num?)?.toDouble() ?? LocationService.fallbackAnchor.y,
+              )
+            : ((data[key] as String?) ?? '');
+        final int? minutesOfDay = parseClockTime(scheduledClock);
+        if (minutesOfDay == null) continue;
 
-      // "Offset" reuses the minutes-before picked for the calculated
-      // reminder; anything that means "at the time" simply fires on it.
-      final int configured = settings.notifyOffsetFor(key);
-      final int minutesBefore =
-          settings.favModeFor(key) == kFavModeOffset && configured > 0 ? configured : 0;
+        // "Offset" reuses the minutes-before picked for the calculated
+        // reminder; anything that means "at the time" simply fires on it.
+        final int configured = settings.notifyOffsetFor(key);
+        final int minutesBefore =
+            settings.favModeFor(key) == kFavModeOffset && configured > 0 ? configured : 0;
 
-      final DateTime atTime =
-          DateTime(now.year, now.month, now.day, minutesOfDay ~/ 60, minutesOfDay % 60);
-      DateTime fire = atTime.subtract(Duration(minutes: minutesBefore));
-      // A time already past happens again tomorrow — the same roll-over the
-      // calculated reminders use, so nothing sits armed in the past.
-      while (!fire.isAfter(now)) {
-        fire = fire.add(const Duration(days: 1));
-      }
-
-      // Same one-prayer-one-card rule as the calculated reminders, and the
-      // same reason for it: on Android the receiver posts this prayer's
-      // card at `fire` either way, so the banner would only be a second
-      // voice saying the same thing.
-      final String cardTitle =
-          '${prayerByKey(key).label} • ${settings.format(atTime)}';
-      final String cardBody = minutesBefore == 0
-          ? 'Jamaat at $where.'
-          : '${prayerByKey(key).label} in $minutesBefore minutes at $where.';
-      if (receiverOwnsTheCard()) {
-        debugPrint('Azan ▸ $where/$key: receiver card stands in for the '
-            'banner — one prayer, one notification');
-      } else {
-        try {
-          await _plugin.zonedSchedule(
-            id: base + p,
-            scheduledDate: tz.TZDateTime(
-              tz.local,
-              fire.year,
-              fire.month,
-              fire.day,
-              fire.hour,
-              fire.minute,
-            ),
-            title: cardTitle,
-            body: cardBody,
-            notificationDetails: _azanDetailsFor(key, entry.masjidId),
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-            matchDateTimeComponents: DateTimeComponents.time,
-            payload: 'azan:$key',
-          );
-          armed++;
-        } catch (error) {
-          debugPrint('Noor ▸ favourite alert failed for $where/$key: $error');
+        final DateTime atTime =
+            DateTime(now.year, now.month, now.day, minutesOfDay ~/ 60, minutesOfDay % 60);
+        DateTime fire = atTime.subtract(Duration(minutes: minutesBefore));
+        // A time already past happens again tomorrow — the same roll-over the
+        // calculated reminders use, so nothing sits armed in the past.
+        while (!fire.isAfter(now)) {
+          fire = fire.add(const Duration(days: 1));
         }
-      }
 
-      // The recitation leaves at `fire` — Jamaat less whatever the reader
-      // chose in the chips — because that is what the chips are: *when*
-      // this prayer's Azaan happens. Arming it a `minutesBefore` later
-      // meant a reader who asked for "5 min before" got the notification
-      // early and the Azaan on the dot, which is the complaint that started
-      // this. One id retires the pair regardless — and it is this prayer's
-      // own bell that decides what arms at all: its clip, or the silent
-      // alarm that carries a muted prayer's card with nothing to hear.
-      await AzaanAlarm.schedule(
-        id: base + p,
-        at: fire,
-        raw: _bellRaw(key, entry.masjidId),
-        title: cardTitle,
-        body: cardBody,
-      );
+        // Same one-prayer-one-card rule as the calculated reminders, and the
+        // same reason for it: on Android the receiver posts this prayer's
+        // card at `fire` either way, so the banner would only be a second
+        // voice saying the same thing.
+        final AzanSound sound = _bellSound(key);
+        final String cardTitle =
+            '${prayerByKey(key).label} • ${settings.format(atTime)}';
+        final String cardBody = minutesBefore == 0
+            ? 'Jamaat at $where.'
+            : '${prayerByKey(key).label} in $minutesBefore minutes at $where.';
+        if (receiverOwnsTheCard()) {
+          debugPrint('Azan ▸ $where/$key: receiver card stands in for the '
+              'banner — one prayer, one notification');
+        } else {
+          try {
+            await _plugin.zonedSchedule(
+              id: base + p,
+              scheduledDate: tz.TZDateTime(
+                tz.local,
+                fire.year,
+                fire.month,
+                fire.day,
+                fire.hour,
+                fire.minute,
+              ),
+              title: cardTitle,
+              body: cardBody,
+              notificationDetails: _azanDetailsFor(key),
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              matchDateTimeComponents: DateTimeComponents.time,
+              payload: 'azan:$key',
+            );
+            armed++;
+          } catch (error) {
+            debugPrint('Noor ▸ favourite alert failed for $where/$key: $error');
+          }
+        }
+
+        // The recitation leaves at `fire` — Jamaat less whatever the reader
+        // chose in the chips — because that is what the chips are: *when*
+        // this prayer's Azaan happens. Arming it a `minutesBefore` later
+        // meant a reader who asked for "5 min before" got the notification
+        // early and the Azaan on the dot, which is the complaint that started
+        // this. One id retires the pair regardless — and it is this prayer's
+        // own bell that decides what arms at all: its clip, or the silent
+        // alarm that carries a muted prayer's card with nothing to hear.
+        await AzaanAlarm.schedule(
+          id: base + p,
+          at: fire,
+          raw: sound.androidRaw ?? _silentRaw,
+          title: cardTitle,
+          body: cardBody,
+        );
+      }
     }
 
-    debugPrint('Azan ▸ scheduled $armed favourite-masjid alert(s) for $where');
+    debugPrint('Azan ▸ scheduled $armed favourite-masjid alert(s) '
+        'for ${resolved.length} switched-on favourite(s)');
   }
 
   /// Reads a favourite's board, saying *how* the read ended.
@@ -3275,7 +3166,7 @@ class NotificationService {
   /// Android, where there is no receiver to post one.
   static Future<void> testReminder() async {
     try {
-      await applyAzanChannel(_azanSound.key);
+      await applyAzanChannel();
       await _plugin.show(
         id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         title: 'Test reminder',
@@ -3292,6 +3183,7 @@ class NotificationService {
       await _plugin.cancel(id: _testReminderId);
       final tz.TZDateTime when =
           tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
+      final AzanSound sound = _azanSound;
       // The probe shows what a prayer shows — one card. Where the receiver
       // will speak for it, the banner is held back exactly as it is held
       // back at Fajr; a probe firing two cards would be demonstrating a
@@ -3332,7 +3224,7 @@ class NotificationService {
       await AzaanAlarm.schedule(
         id: _testReminderId,
         at: when,
-        raw: _rawFor(_azanSound),
+        raw: sound.androidRaw ?? _silentRaw,
         title: 'Closed-app test',
         body: 'This fired with Noor shut — exactly what a prayer time does.',
         // Not recurring: a diagnostic that resurrects itself every morning
@@ -4195,6 +4087,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// between them.
   int _tab = 0;
 
+  /// How many times a masjid has been selected on this screen. When the same
+  /// masjid is tapped five times, its Azaan alert is turned off and the
+  /// counter resets.
+  int _masjidSelectCount = 0;
+  String? _masjidSelectLastId;
+  Timer? _selectCountResetTimer;
+
+  /// Turns off alerts for the masjid the reader has selected five times in a
+  /// row, and notifies them that their personal alert for that masjid is now
+  /// off.
+  Future<void> _handleMasjidSelected(Masjid masjid) async {
+    final String id = masjid.id;
+    if (_masjidSelectLastId == id) {
+      _masjidSelectCount++;
+    } else {
+      _masjidSelectCount = 1;
+      _masjidSelectLastId = id;
+    }
+    _resetMasjidSelectCount();
+
+    if (!mounted) return;
+
+    if (_masjidSelectCount >= 5) {
+      _masjidSelectCount = 0;
+      _masjidSelectLastId = null;
+
+      // Flip the per-masjid alert switch off.
+      AppSettings.instance.setFavAlert(id, false);
+      await NotificationService.scheduleFavouriteAlerts();
+      if (!mounted) return;
+
+      // Tell the reader about it.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You selected ${masjid.name.isEmpty ? 'this masjid' : masjid.name} '
+            'five times — the Azaan alert for this masjid is now off.',
+            style: GoogleFonts.outfit(fontSize: 13, height: 1.4),
+          ),
+          action: SnackBarAction(label: 'Undo', onPressed: () async {
+            AppSettings.instance.setFavAlert(id, true);
+            await NotificationService.scheduleFavouriteAlerts();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('The Azaan alert for this masjid is back on.'),
+                  duration: Duration(seconds: 4),
+                ),
+              );
+            }
+          }),
+        ),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -4224,6 +4172,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _serviceSubscription?.cancel();
     _subscription?.cancel();
     _searchController.dispose();
+    _selectCountResetTimer?.cancel();
     super.dispose();
   }
 
@@ -4712,10 +4661,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await AppConfig.instance.load();
     AppConfig.instance.seedNewProfile();
 
-    // The tasbeeh's beads are local and per profile — they share the scope
-    // the line above has just put in place, so they load here, once, before
-    // the screen that reads them can open.
+    // The tasbeeh's beads and the prayer log are local and per profile —
+    // they share the scope the line above has just put in place, so they
+    // load here, once, before either screen that reads them can open.
     unawaited(Tasbeeh.instance.load());
+    unawaited(PrayerTracker.instance.load());
 
     // Local cache first so favourites show instantly, then reconcile with the
     // Firestore sub-collection so they follow the user across devices.
@@ -4730,7 +4680,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
     FavouriteWatcher.watch(cachedFavourites);
-    _reconcileAzaanSelection(cachedFavourites);
     unawaited(_syncFavouritesFromCloud(cachedFavourites));
     // The starred masjids are known now (cache first, cloud may add more),
     // so arm their Jamaat-time alerts alongside the calculated reminders.
@@ -4979,22 +4928,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return starred;
   }
 
-  /// The masjid whose Jamaat column the Today card quotes — and, because the
-  /// star is the choice, the one masjid the Azaan follows: the explicit pick
-  /// from the card's chooser while that masjid is still starred.
+  /// The masjid whose Jamaat column the Today card quotes: the explicit pick
+  /// from the card's chooser while that masjid is still starred, otherwise
+  /// the starred one nearest to you.
   ///
-  /// There is deliberately no automatic fallback: the chip on Home names one
-  /// masjid, so the Azaan can only ever come from the masjid that chip names.
-  /// Unstarring that masjid clears the pick (see [AppSettings.setStarredSelection]),
-  /// and Home falls back to the calculated times alone until a star is chosen
-  /// again. `null` while nothing is selected.
+  /// Unstarring the chosen masjid is enough to drop the card back to the
+  /// automatic answer — the stored id is only ever a preference, never a
+  /// promise. `null` while nothing is starred at all, in which case the card
+  /// keeps showing the calculated times on their own.
   Masjid? get _favouriteBoard {
+    final List<Masjid> starred = _starred;
+    if (starred.isEmpty) return null;
+
     final String chosen = AppSettings.instance.todayBoardId;
-    if (chosen.isEmpty) return null;
-    for (final Masjid m in _starred) {
-      if (m.id == chosen) return m;
+    if (chosen.isNotEmpty) {
+      for (final Masjid m in starred) {
+        if (m.id == chosen) return m;
+      }
     }
-    return null;
+    return starred.first;
   }
 
   bool get _showDropdown =>
@@ -5294,20 +5246,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Drops a stored Azaan pick whose star is gone.
-  ///
-  /// The star and the Azaan choice are one answer, so a choice that is no
-  /// longer in the star list must not survive: without this, Home could keep
-  /// naming (and ringing) a masjid the reader has already un-starred. Nothing
-  /// is auto-selected in its place — the card falls back to the calculated
-  /// times until the reader stars a masjid again.
-  void _reconcileAzaanSelection(List<String> favourites) {
-    final String chosen = AppSettings.instance.todayBoardId;
-    if (chosen.isEmpty || favourites.contains(chosen)) return;
-    debugPrint('Noor ▸ clearing the Azaan choice $chosen — no longer starred');
-    AppSettings.instance.setTodayBoard('');
-  }
-
   Future<void> _syncFavouritesFromCloud(List<String> known) async {
     try {
       final String? uid = FirebaseAuth.instance.currentUser?.uid;
@@ -5324,11 +5262,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final List<String> merged = <String>{...known, ...cloud}.toList();
       final bool changed = merged.length != known.length;
       if (changed) await FavouriteStore.cache(merged);
-
-      // The chosen masjid can disappear here when another device un-stars
-      // it. Drop the pick with the star; the Azaan then follows whatever
-      // starred masjid is left.
-      _reconcileAzaanSelection(merged);
 
       if (!mounted) return;
       setState(() {
@@ -5377,21 +5310,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : (_favourites.toList()..remove(id));
       });
     }
-
-    // Starring is choosing: the Azaan follows exactly one masjid, and the
-    // last star is the one the reader asked for. The Today card quotes the
-    // same board, so the two never disagree — a new star hands both over,
-    // and un-starring the chosen masjid hands them back to the nearest.
-    AppSettings.instance.setStarredSelection(id, nowFavourite);
-
     FavouriteWatcher.watch(_favourites);
+    unawaited(NotificationService.scheduleFavouriteAlerts());
 
     try {
-      // The store commits the star to the local cache before it reaches
-      // Firestore. Re-arming *after* that write is what keeps this pass from
-      // reading yesterday's list and concluding the new star does not exist —
-      // an offline account copy used to matter here, the cached star still
-      // does not.
       await FavouriteStore.toggle(id);
     } catch (error) {
       debugPrint('Noor ▸ favourite not synced yet: $error');
@@ -5403,8 +5325,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               : 'Un-starred on this phone — it will sync when you are back online.',
         ),
       ));
-    } finally {
-      unawaited(NotificationService.scheduleFavouriteAlerts());
     }
   }
 
@@ -5706,6 +5626,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return hijri.isEmpty ? greg : '$hijri • $greg';
   }
 
+  /// Resets the masjid selection counter after a short pause so repeated
+  /// taps on the same masjid in quick succession do not stack up alerts.
+  void _resetMasjidSelectCount() {
+    _selectCountResetTimer?.cancel();
+    _selectCountResetTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        _masjidSelectCount = 0;
+        _masjidSelectLastId = null;
+      }
+    });
+  }
+
   /// The owner's notice, at the top of Home — one line of admin-owned text
   /// that reaches every phone holding the config.
   ///
@@ -5810,11 +5742,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     _position?.longitude ?? LocationService.fallbackAnchor.y,
               )),
               onOpenTasbeeh: () => _openTool(const TasbeehScreen()),
-              // The third door opens the Hijri calendar — the tracker that
-              // stood here gave up its place, and its screen and log went
-              // with it: a feature nobody can reach is not a feature, and
-              // git keeps it if the reader asks it back.
-              onOpenCalendar: _openHijriCalendar,
+              onOpenTracker: () => _openTool(const TrackerScreen()),
             ),
 
             // Always present — even with zero masjids in the collection.
@@ -6149,6 +6077,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 isFavourite: true,
                 favouritesLoaded: _favouritesLoaded,
                 onFavourite: () => _toggleFavourite(m.id),
+                onSelect: _handleMasjidSelected,
               ),
             ),
         ],
@@ -6445,6 +6374,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 isFavourite: _favourites.contains(entry.key.id),
                 favouritesLoaded: _favouritesLoaded,
                 onFavourite: () => _toggleFavourite(entry.key.id),
+                onSelect: _handleMasjidSelected,
               ),
             ),
         ],
@@ -6637,6 +6567,7 @@ class MasjidCard extends StatelessWidget {
     required this.isFavourite,
     required this.onFavourite,
     this.favouritesLoaded = true,
+    this.onSelect,
   });
 
   final Masjid masjid;
@@ -6644,6 +6575,7 @@ class MasjidCard extends StatelessWidget {
   final bool isFavourite;
   final bool favouritesLoaded;
   final VoidCallback onFavourite;
+  final ValueChanged<Masjid>? onSelect;
 
   void _openDetail(BuildContext context) {
     Navigator.of(context).push<void>(
@@ -6664,8 +6596,11 @@ class MasjidCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GoldCard(
-      onTap: () => _openDetail(context),
-      child: Column(
+      onTap: () {
+        onSelect?.call(masjid);
+        _openDetail(context);
+      },
+      child: Column (
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
@@ -6709,16 +6644,6 @@ class MasjidCard extends StatelessWidget {
               for (final PrayerInfo prayer in kPrayers.take(5))
                 Expanded(child: _TimeChip(prayer: prayer, time: masjid.timeFor(prayer.key))),
             ],
-          ),
-          // Friday has no waqt of its own, so it does not join the five chips
-          // above — as a sixth of that row its clock would be squeezed to the
-          // edge of what a column can hold. Same chip, cut across the full
-          // width instead: the board has always stored a Juma time, and this
-          // is the first place on Home that shows it.
-          _TimeChip(
-            prayer: prayerByKey('juma'),
-            time: masjid.timeFor('juma'),
-            inline: true,
           ),
           const SizedBox(height: 12),
           Container(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
@@ -6783,63 +6708,14 @@ class MasjidCard extends StatelessWidget {
 ///
 /// [time] arrives exactly as Firestore stored it (`17:45`); the chip, not the
 /// card, decides how that reads on screen — see `AppSettings.formatClockShort`.
-///
-/// Two cuts of the same chip. The stacked square is the one the five waqts
-/// wear, five abreast; [inline] is one line across the whole card, which is
-/// how Juma gets its clock without a sixth of the row to put it in. An empty
-/// Juma cell — a masjid added before the form could ask for one — reads
-/// `--:--`, the same "the board never answered" the rest of the card uses,
-/// rather than leaving a blank that looks like a rendering bug.
 class _TimeChip extends StatelessWidget {
-  const _TimeChip({required this.prayer, required this.time, this.inline = false});
+  const _TimeChip({required this.prayer, required this.time});
 
   final PrayerInfo prayer;
   final String time;
 
-  /// Laid out as one full-width line instead of a narrow stacked column.
-  final bool inline;
-
-  String get _clock => time.trim().isEmpty ? '--:--' : time;
-
   @override
   Widget build(BuildContext context) {
-    if (inline) {
-      return Container(
-        margin: const EdgeInsets.only(top: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-        decoration: BoxDecoration(
-          color: NoorColors.onGlassChip,
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: NoorColors.gold.withValues(alpha: 0.35)),
-        ),
-        child: Row(
-          children: <Widget>[
-            Icon(prayer.icon, size: 14, color: NoorColors.onGlassGold),
-            const SizedBox(width: 8),
-            Text(
-              '${prayer.label} · Friday',
-              style: GoogleFonts.outfit(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: NoorColors.onGlassMuted,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              AppSettings.instance.formatClockShort(_clock),
-              maxLines: 1,
-              overflow: TextOverflow.clip,
-              style: GoogleFonts.outfit(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: NoorColors.onGlass,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 3),
       padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 3),
@@ -6858,7 +6734,7 @@ class _TimeChip extends StatelessWidget {
           ),
           const SizedBox(height: 1),
           Text(
-            AppSettings.instance.formatClockShort(_clock),
+            AppSettings.instance.formatClockShort(time),
             maxLines: 1,
             overflow: TextOverflow.clip,
             style: GoogleFonts.outfit(
@@ -7288,7 +7164,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
       String photoBase64 = '';
       if (photoPath.isNotEmpty) {
         try {
-          final Uint8List bytes = await File(photoPath).readAsBytes();
+          // Add watermark with masjid name and prayer times
+          final Map<String, String> prayerTimesForWatermark = <String, String>{
+            'fajr': _controllers['fajr']!.text.trim(),
+            'dhuhr': _controllers['dhuhr']!.text.trim(),
+            'asr': _controllers['asr']!.text.trim(),
+            'maghrib': calculatedMaghribTime(latitude, longitude),
+            'isha': _controllers['isha']!.text.trim(),
+          };
+
+          final Uint8List? watermarkedBytes = await addPhotoWatermark(
+            photoPath: photoPath,
+            masjidName: name,
+            prayerTimes: prayerTimesForWatermark,
+          );
+
+          final Uint8List bytes = watermarkedBytes ?? await File(photoPath).readAsBytes();
           if (bytes.lengthInBytes <= 450000) photoBase64 = base64Encode(bytes);
         } catch (error) {
           debugPrint('Noor ▸ could not encode proof: $error');
@@ -7322,7 +7213,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         'fajr': _controllers['fajr']!.text.trim(),
         'dhuhr': _controllers['dhuhr']!.text.trim(),
         'asr': _controllers['asr']!.text.trim(),
-        'maghrib': _controllers['maghrib']!.text.trim(),
+        'maghrib': calculatedMaghribTime(latitude, longitude),
         'isha': _controllers['isha']!.text.trim(),
         'juma': _controllers['juma']!.text.trim(),
         'latitude': latitude,
@@ -7760,7 +7651,7 @@ class PrayerTimeField extends StatefulWidget {
 
   final PrayerInfo prayer;
   final TextEditingController controller;
-  final FocusNode focusNode;
+  final FocusNode focusNode; // Kept for backwards compatibility but no longer used
   final String? Function(String?) validator;
 
   @override
@@ -7769,6 +7660,7 @@ class PrayerTimeField extends StatefulWidget {
 
 class _PrayerTimeFieldState extends State<PrayerTimeField> {
   bool _filled = false;
+  String? _validationError;
 
   @override
   void initState() {
@@ -7788,44 +7680,126 @@ class _PrayerTimeFieldState extends State<PrayerTimeField> {
     super.dispose();
   }
 
+  Future<void> _pickTime() async {
+    if (widget.prayer.key == 'maghrib') return;
+    TimeOfDay initial = TimeOfDay.now();
+    final String current = widget.controller.text.trim();
+    if (current.isNotEmpty && RegExp(r'^\d{1,2}:\d{2}$').hasMatch(current)) {
+      final List<String> parts = current.split(':');
+      initial = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    }
+
+    final TimeOfDay? picked =
+        await showTimePicker(context: context, initialTime: initial);
+    if (picked == null || !mounted) return;
+
+    widget.controller.text =
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+
+    // Trigger validation
+    _validationError = widget.validator(widget.controller.text);
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
-    return TextFormField(
-      controller: widget.controller,
-      focusNode: widget.focusNode,
+    final String timeValue = widget.controller.text.trim();
+    final bool isEmpty = timeValue.isEmpty;
+    final Color textColor = isEmpty ? NoorColors.muted : NoorColors.ink;
+
+    return FormField<String>(
+      initialValue: timeValue,
       validator: widget.validator,
-      keyboardType: const TextInputType.numberWithOptions(decimal: false),
-      inputFormatters: <TextInputFormatter>[
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9:]')),
-        LengthLimitingTextInputFormatter(5),
-      ],
-      // The field is filled white by the theme, so a *dark* value is the only
-      // spelling a reader can actually see — the accent beige (#D7B899) reads
-      // as blank on white, which is how a saved time looked like an empty box.
-      style: GoogleFonts.outfit(
-        fontSize: 15,
-        fontWeight: FontWeight.w700,
-        color: _filled ? NoorColors.ink : NoorColors.muted,
-        letterSpacing: 0.6,
-      ),
-      decoration: InputDecoration(
-        labelText: '${widget.prayer.label} • ${widget.prayer.arabic}',
-        hintText: 'HH:MM',
-        // Same rule for the glyphs: the light accent vanishes on the white
-        // fill, so they take the deepened shade of it instead.
-        prefixIcon: Icon(widget.prayer.icon, color: NoorColors.emeraldDeep, size: 20),
-        suffixIcon: IconButton(
-          tooltip: 'Edit ${widget.prayer.label}',
-          onPressed: () {
-            widget.focusNode.requestFocus();
-            widget.controller.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: widget.controller.text.length,
-            );
-          },
-          icon: const Icon(Icons.edit_outlined, size: 18, color: NoorColors.emeraldDeep),
-        ),
-      ),
+      builder: (FormFieldState<String> state) {
+        final String? errorText = state.errorText;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            InkWell(
+              onTap: () async {
+                await _pickTime();
+                state.didChange(widget.controller.text.trim());
+              },
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                decoration: BoxDecoration(
+                  color: NoorColors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: errorText != null
+                        ? NoorColors.danger
+                        : (isEmpty
+                            ? NoorColors.gold.withValues(alpha: 0.5)
+                            : NoorColors.gold),
+                  ),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: NoorColors.cardGreen,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        widget.prayer.icon,
+                        size: 16,
+                        color: NoorColors.emeraldDeep,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            '${widget.prayer.label} • ${widget.prayer.arabic}',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: NoorColors.muted,
+                            ),
+                          ),
+                          if (errorText != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                errorText,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 10.5,
+                                  color: NoorColors.danger,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isEmpty ? 'Tap to set' : timeValue,
+                      style: GoogleFonts.outfit(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                        letterSpacing: isEmpty ? 0 : 0.6,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      isEmpty ? Icons.schedule_outlined : Icons.access_time,
+                      size: 17,
+                      color: textColor,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -8035,48 +8009,11 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
   late Masjid _masjid;
   late double _metres;
 
-  /// Whether *this account* has starred the masjid. Until that is known the
-  /// alert switch stays disabled rather than guessing at an off state.
-  bool _favourite = false;
-  bool _favouriteKnown = false;
-
   @override
   void initState() {
     super.initState();
     _masjid = widget.masjid;
     _metres = widget.metres;
-    _loadFavouriteState();
-  }
-
-  Future<void> _loadFavouriteState() async {
-    final List<String> ids = await FavouriteStore.cached();
-    if (!mounted) return;
-    setState(() {
-      _favourite = ids.contains(_masjid.id);
-      _favouriteKnown = true;
-    });
-  }
-
-  /// The alert switch itself: on moves the Home pick to this masjid (only one
-  /// masjid rings at a time), then both schedules are rebuilt — the favourite
-  /// pass for the Jamaat alerts and the calculated pass, whose bells follow
-  /// the same board — and the page redraws so the switch shows the new state.
-  Future<void> _setAlert(bool enabled) async {
-    AppSettings.instance.setFavAlert(_masjid.id, enabled);
-    await NotificationService.scheduleFavouriteAlerts();
-    if (mounted) setState(() {});
-  }
-
-  /// Prayers this masjid can actually alert for: switched on in Settings
-  /// *and* carrying a readable time on the board.
-  List<String> _armedPrayers() {
-    final AppSettings settings = AppSettings.instance;
-    return <String>[
-      for (final String key in kNotifiablePrayers)
-        if (settings.notifyOnFor(key) &&
-            NotificationService.parseClockTime(_masjid.timeFor(key)) != null)
-          prayerByKey(key).label,
-    ];
   }
 
   /// All three ways in — live camera, a gallery photo, or typing the times by
@@ -8221,7 +8158,6 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
       if (ids.remove(_masjid.id)) {
         await FavouriteStore.cache(ids);
         FavouriteWatcher.watch(ids);
-        AppSettings.instance.setStarredSelection(_masjid.id, false);
         final String? uid = FirebaseAuth.instance.currentUser?.uid;
         if (uid != null) {
           try {
@@ -8520,59 +8456,6 @@ class _MasjidDetailScreenState extends State<MasjidDetailScreen> {
                                 ),
                               ),
                             ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-                  SectionHeader(title: 'Prayer alerts'),
-                  GoldCard(
-                    padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        SwitchListTile(
-                          value: _favourite && AppSettings.instance.favAlertFor(_masjid.id),
-                          onChanged: _favourite ? _setAlert : null,
-                          activeThumbColor: NoorColors.emerald,
-                          title: Text(
-                            'Alert me at this masjid',
-                            style: GoogleFonts.outfit(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: NoorColors.onGlass),
-                          ),
-                          subtitle: Text(
-                            !_favouriteKnown
-                                ? 'Checking your favourites…'
-                                : !_favourite
-                                    ? 'Star this masjid first — then Noor can remind you '
-                                        'at the Jamaat times shown above.'
-                                    : AppSettings.instance.favAlertFor(_masjid.id)
-                                        ? 'Alerting here — the azan, reminders and Jamaat '
-                                            'alerts all follow this masjid’s Home pick.'
-                                        : 'Off — Home is alerting for another masjid. '
-                                            'Switching this on moves it here.',
-                            style: GoogleFonts.outfit(
-                                fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.45),
-                          ),
-                        ),
-                        if (_favourite && AppSettings.instance.favAlertFor(_masjid.id)) ...<Widget>[
-                          Divider(height: 1, color: NoorColors.gold.withValues(alpha: 0.3)),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                            child: Text(
-                              _armedPrayers().isEmpty
-                                  ? 'Nothing armed yet — switch on at least one prayer in '
-                                      'Settings, and make sure this board has that time.'
-                                  : 'Armed for ${_armedPrayers().join(', ')}. '
-                                      'Which prayers fire, and whether they fire exactly on '
-                                      'the Jamaat time or minutes before, is set in Settings.',
-                              style: GoogleFonts.outfit(
-                                  fontSize: 11.5, color: NoorColors.onGlassMuted, height: 1.5),
-                            ),
                           ),
                         ],
                       ],

@@ -1,0 +1,7 @@
+name = "noor-gemini-ocr-proxy"
+main = "src/index.js"
+compatibility_date = "2026-11-07"
+workers_dev = true
+
+[vars]
+GEMINI_MODEL = "gemini-2.5-flash"
