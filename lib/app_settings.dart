@@ -136,7 +136,7 @@ AzanSound azanSoundByKey(String key) {
 const List<String> kNotifiablePrayers = <String>['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
 
 /// The three states a Home bell can hold, asked of the reader in the bell's
-/// dialog (Azaan / Mute / Band):
+/// dialog (Azaan / Mute / Off):
 ///
 /// * `azan` — the banner *and* the recitation, the full reminder.
 /// * `silent` — the banner only, with no sound of any kind: the phone
@@ -656,14 +656,10 @@ class AppSettings extends ChangeNotifier {
 
   /// prayer key → whether its reminder is switched on at all.
   ///
-  /// It starts **off, for every prayer** — a profile nobody has spoken to
-  /// rings for nobody. Silence is the app's opening answer, not something a
-  /// reader has to go and switch off, and it can only be left behind by a
-  /// real answer: the Home bell's own dialog, or the switch in Settings.
-  /// Nothing here rewrites an existing value, so a reader who *did* choose
-  /// keeps exactly what they chose.
+  /// New profiles start with reminders enabled at prayer time. Values loaded
+  /// from preferences always win, so existing users keep their choices.
   final Map<String, bool> _notifyOn = <String, bool>{
-    for (final String key in kNotifiablePrayers) key: false,
+    for (final String key in kNotifiablePrayers) key: true,
   };
 
   /// prayer key → when a *favourite masjid's* alert for that prayer fires.
@@ -971,7 +967,7 @@ class AppSettings extends ChangeNotifier {
         _notifyOffsets[key] = prefs.getInt(_key('notify_$key')) ?? -1;
         // Nothing stored means nobody has answered — the bell dialog is the
         // first place that answer can be given, so a blank slot reads off.
-        _notifyOn[key] = prefs.getBool(_key('notifyon_$key')) ?? false;
+        _notifyOn[key] = prefs.getBool(_key('notifyon_$key')) ?? true;
         _favModes[key] = prefs.getString(_key('favmode_$key')) ?? kFavModeAt;
         // A stored mode only counts if it is one of the three; anything
         // else — stale, or a profile being left behind — clears the slot
@@ -1232,11 +1228,9 @@ class AppSettings extends ChangeNotifier {
     _notificationsEnabled = defaults.notificationsEnabled;
     for (final String prayer in kNotifiablePrayers) {
       _notifyOffsets[prayer] = defaults.minutesBefore;
-      // Seeding installs the owner's *silence* too: the seeded profile is
-      // one that has never answered, and "never answered" is off. The
-      // offsets are ready and waiting; the ringing itself is the reader's
-      // to ask for, in the bell dialog or in Settings.
-      _notifyOn[prayer] = false;
+      // New users receive an enabled reminder at the selected offset. Existing
+      // profiles are never seeded again, so their saved choice is preserved.
+      _notifyOn[prayer] = true;
       _favModes[prayer] = kFavModeAt;
     }
 
@@ -1303,17 +1297,17 @@ class AppSettings extends ChangeNotifier {
       calculationParameters: buildParameters(),
     );
 
+    final DateTime sunset = localisePrayerTime(raw.sunset, date);
     final Map<String, DateTime> times = <String, DateTime>{
       'fajr': localisePrayerTime(raw.fajr, date),
       'sunrise': localisePrayerTime(raw.sunrise, date),
       'dhuhr': localisePrayerTime(raw.dhuhr, date),
       'asr': localisePrayerTime(raw.asr, date),
-      'maghrib': localisePrayerTime(raw.maghrib, date),
+      // Noor's fixed Maghrib Awwal rule: two minutes after sunset. Never use
+      // a board's edited Jamaat value for the calculated prayer time.
+      'maghrib': sunset.add(const Duration(minutes: 2)),
       'isha': localisePrayerTime(raw.isha, date),
-      // The sun's own going-down, which the boards print under the five as
-      // "Sunset" and which the Home's day-strip shows beside the sunrise.
-      // It is *not* a prayer — Maghrib is the prayer that opens at it.
-      'sunset': localisePrayerTime(raw.sunset, date),
+      'sunset': sunset,
     };
 
     final DateTime tomorrow = DateTime(date.year, date.month, date.day + 1);

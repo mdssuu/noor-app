@@ -202,7 +202,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   }
 
   /// The three answers, named the way the reader says them: **Azaan** rings
-  /// and shows a card, **Mute** shows the card without a sound, **Band** does
+  /// and shows a card, **Mute** shows the card without a sound, **Off** does
   /// neither. Whatever is already in force is ticked, so the dialog opens as
   /// a question about the present rather than a command over the future.
   Widget _bellDialog(BuildContext context, String key) {
@@ -212,7 +212,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
           'The card and the recitation both', current),
       _bellChoice(context, kBellSilent, 'Mute', Icons.notifications_outlined,
           'The card, without any sound', current),
-      _bellChoice(context, kBellOff, 'Band', Icons.notifications_off_outlined,
+      _bellChoice(context, kBellOff, 'Off', Icons.notifications_off_outlined,
           'Nothing at all, not even the card', current),
     ];
 

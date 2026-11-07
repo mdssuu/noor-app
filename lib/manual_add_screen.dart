@@ -287,7 +287,10 @@ class _ManualAddScreenState extends State<ManualAddScreen> {
 
       final Map<String, dynamic> payload = <String, dynamic>{
         'masjidName': name,
-        for (final String key in _keys) key: (_times[key] ?? '').trim(),
+        for (final String key in _keys)
+          key: key == 'maghrib'
+              ? calculatedMaghribTime(latitude, longitude)
+              : (_times[key] ?? '').trim(),
         // Manual entries have no Juma time field in this form — keep the key
         // so Firestore rules that require all prayer fields still pass.
         'juma': widget.existing?.juma ?? '',
@@ -526,7 +529,7 @@ class _ManualAddScreenState extends State<ManualAddScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: InkWell(
-                  onTap: () => _pickTime(key),
+                  onTap: key == 'maghrib' ? null : () => _pickTime(key),
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),

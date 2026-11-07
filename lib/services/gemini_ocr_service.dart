@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 
 /// ===========================================================================
@@ -77,13 +76,7 @@ class GeminiOcrService {
     return configured.isEmpty ? _defaultModel : configured;
   }
 
-  /// Refuse to send anything for a placeholder or empty key rather than
-  /// spending a round trip guaranteed to get a 400 back.
-  static const String _placeholder = 'PASTE_YOUR_NEW_KEY_HERE';
-
   static bool get _usesProxy => _read('GEMINI_PROXY_URL').isNotEmpty;
-
-  static String get _apiKey => _read('GEMINI_API_KEY');
 
   static String _read(String name) {
     // `dotenv.env` throws NotInitializedError before `load()` has run, and a
@@ -92,10 +85,9 @@ class GeminiOcrService {
     return dotenv.env[name] ?? '';
   }
 
-  /// True when OCR could go to the cloud — used to log intent, never to gate
-  /// the UI, because the on-device reader always remains available.
-  static bool get isConfigured =>
-      _usesProxy || (_apiKey.isNotEmpty && _apiKey != _placeholder);
+  /// True only when the secure backend proxy is configured. The client never
+  /// accepts or sends a Gemini API key.
+  static bool get isConfigured => _usesProxy;
 
   /// Why the most recent [extractJamaatTimes] came back `null`.
   ///
@@ -136,9 +128,9 @@ class GeminiOcrService {
       debugPrint('Gemini ▸ .env not loaded — using on-device OCR');
       return null;
     }
-    if (!_usesProxy && !isConfigured) {
-      lastFailureReason = 'no API key is configured in .env';
-      debugPrint('Gemini ▸ GEMINI_API_KEY missing in .env — using on-device OCR');
+    if (!_usesProxy) {
+      lastFailureReason = 'secure OCR proxy is not configured';
+      debugPrint('Gemini ▸ secure proxy missing — using on-device OCR');
       return null;
     }
 
@@ -169,7 +161,7 @@ class GeminiOcrService {
             '${result.outOfOrder ? ' OUT OF ORDER' : ''}'
             '${attempt > 1 ? ' (attempt $attempt)' : ''}');
         return result;
-      } on GenerativeAIException catch (error) {
+      } on Exception catch (error) {
         if (!_isTransient(error) || attempt == _maxAttempts) {
           lastFailureReason = _describe(error);
           debugPrint('Gemini ▸ refused ($error) — using on-device OCR');
@@ -230,37 +222,10 @@ class GeminiOcrService {
   /// rather than have one of the two nested timers fire first.
   static Future<String> _generate(Uint8List jpeg, {String? hint}) async {
     final String endpoint = _read('GEMINI_PROXY_URL');
-    if (endpoint.isNotEmpty) {
-      return _generateViaProxy(endpoint, jpeg, hint: hint);
+    if (endpoint.isEmpty) {
+      throw Exception('secure OCR proxy is not configured');
     }
-
-    final String apiKey = _apiKey;
-    if (apiKey.isEmpty || apiKey == _placeholder) {
-      throw GenerativeAIException('GEMINI_API_KEY is not set');
-    }
-
-    final GenerativeModel model = GenerativeModel(
-      model: _model,
-      apiKey: apiKey,
-      // JSON mode removes the "here's your result:\n```json ...```" wrapper
-      // and the occasional stray sentence that used to break the decoder.
-      generationConfig: GenerationConfig(
-        responseMimeType: 'application/json',
-        temperature: 0,
-      ),
-      systemInstruction: Content.system(_systemPrompt),
-    );
-
-    final GenerateContentResponse response = await model.generateContent(
-      <Content>[
-        Content.multi(<Part>[
-          TextPart(_userPrompt(hint: hint)),
-          DataPart('image/jpeg', jpeg),
-        ]),
-      ],
-    );
-
-    return response.text ?? '';
+    return _generateViaProxy(endpoint, jpeg, hint: hint);
   }
 
   /// Stand-in for a future backend. POSTs the image, expects the same JSON
@@ -280,15 +245,15 @@ class GeminiOcrService {
       }),
     );
     if (response.statusCode != 200) {
-      throw GenerativeAIException('proxy HTTP ${response.statusCode}');
+      throw Exception('proxy HTTP ${response.statusCode}');
     }
     return response.body;
   }
 
   // =========================================================================
-  //  Prompt
+  //  Prompt (kept on the server; the client sends only image + hint)
   // =========================================================================
-
+  /*
   static const String _systemPrompt = '''
 You transcribe photographs of masjid (mosque) prayer-time boards.
 
@@ -317,6 +282,7 @@ Schema:
         (hint == null || hint.trim().isEmpty) ? '' : ' The board may be labelled: ${hint.trim()}.';
     return 'Read the Jamaat times from this board.$extra';
   }
+  */
 
   // =========================================================================
   //  Parsing

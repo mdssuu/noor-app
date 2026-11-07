@@ -28,6 +28,8 @@ android/gradle/
 /android/app/google-services.json
 # Asli .env (Gemini key) ka backup - .env khud tracked hai par placeholder.
 /.env.local
+/cloudflare-worker/node_modules/
+/cloudflare-worker/.wrangler/
 
 # iOS / macOS
 ios/Pods/

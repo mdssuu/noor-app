@@ -24,6 +24,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' show ImageFilter, PlatformDispatcher;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -37,6 +38,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image/image.dart' as img;
 import 'package:hijri/hijri_calendar.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -1162,9 +1164,84 @@ String formatPlacemark(geocoding.Placemark place) {
   return parts.join(', ');
 }
 
+
+/// Add watermark to photo proof with masjid name and prayer times.
+/// This ensures photo proof cannot be arbitrary - it must show the board context.
+Future<Uint8List?> addPhotoWatermark({
+  required String photoPath,
+  required String masjidName,
+  required Map<String, String> prayerTimes,
+}) async {
+  try {
+    final File photoFile = File(photoPath);
+    if (!await photoFile.exists()) return null;
+
+    final Uint8List imageData = await photoFile.readAsBytes();
+    final img.Image? image = img.decodeImage(imageData);
+    if (image == null) return null;
+
+    final List<String> timesList = <String>[
+      'Fajr: ${prayerTimes['fajr'] ?? '—'}',
+      'Dhuhr: ${prayerTimes['dhuhr'] ?? '—'}',
+      'Asr: ${prayerTimes['asr'] ?? '—'}',
+    ];
+    const int overlayHeight = 90;
+    final int startY = image.height - overlayHeight;
+
+    img.fillRect(
+      image,
+      x1: 0,
+      y1: startY,
+      x2: image.width,
+      y2: image.height,
+      color: img.ColorRgba8(0, 0, 0, 180),
+    );
+    img.drawString(
+      image,
+      masjidName.length > 30 ? '${masjidName.substring(0, 27)}...' : masjidName,
+      font: img.arial48,
+      x: 10,
+      y: startY + 8,
+      color: img.ColorRgba8(255, 255, 255, 255),
+    );
+    final String timesText = timesList.join(' • ');
+    img.drawString(
+      image,
+      timesText.length > 50 ? '${timesText.substring(0, 47)}...' : timesText,
+      font: img.arial24,
+      x: 10,
+      y: startY + 58,
+      color: img.ColorRgba8(215, 184, 153, 255),
+    );
+
+    final Uint8List watermarkedBytes = Uint8List.fromList(
+      img.encodeJpg(image, quality: 90),
+    );
+    debugPrint('Noor ▸ watermark added to photo (${watermarkedBytes.lengthInBytes} bytes)');
+    return watermarkedBytes;
+  } catch (error) {
+    debugPrint('Noor ▸ watermark failed: $error');
+    return null;
+  }
+}
+
 // ===========================================================================
 //  DOMAIN MODEL
 // ===========================================================================
+
+/// Maghrib is an Awwal-waqt prayer in Noor: sunset plus two minutes. It is
+/// calculated from the masjid's coordinates, so OCR/manual board edits cannot
+/// replace either the displayed Maghrib or its Jamaat value.
+String calculatedMaghribTime(double latitude, double longitude) {
+  final LocalPrayerTimes day = AppSettings.instance.compute(
+    latitude: latitude,
+    longitude: longitude,
+  );
+  final DateTime? sunset = day.times['sunset'];
+  if (sunset == null) return '--:--';
+  final DateTime maghrib = sunset.add(const Duration(minutes: 2));
+  return DateFormat('HH:mm').format(maghrib);
+}
 
 class Masjid {
   const Masjid({
@@ -1283,7 +1360,9 @@ class Masjid {
       case 'asr':
         return asr;
       case 'maghrib':
-        return maghrib;
+        // Maghrib is never a board/Jamaat time in Noor. It always begins at
+        // Awwal waqt: two minutes after the calculated sunset for this masjid.
+        return calculatedMaghribTime(latitude, longitude);
       case 'isha':
         return isha;
       case 'juma':
@@ -2882,7 +2961,13 @@ class NotificationService {
         final String key = kNotifiablePrayers[p];
         if (!settings.notifyOnFor(key)) continue;
 
-        final int? minutesOfDay = parseClockTime((data[key] as String?) ?? '');
+        final String scheduledClock = key == 'maghrib'
+            ? calculatedMaghribTime(
+                (data['latitude'] as num?)?.toDouble() ?? LocationService.fallbackAnchor.x,
+                (data['longitude'] as num?)?.toDouble() ?? LocationService.fallbackAnchor.y,
+              )
+            : ((data[key] as String?) ?? '');
+        final int? minutesOfDay = parseClockTime(scheduledClock);
         if (minutesOfDay == null) continue;
 
         // "Offset" reuses the minutes-before picked for the calculated
@@ -7079,7 +7164,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
       String photoBase64 = '';
       if (photoPath.isNotEmpty) {
         try {
-          final Uint8List bytes = await File(photoPath).readAsBytes();
+          // Add watermark with masjid name and prayer times
+          final Map<String, String> prayerTimesForWatermark = <String, String>{
+            'fajr': _controllers['fajr']!.text.trim(),
+            'dhuhr': _controllers['dhuhr']!.text.trim(),
+            'asr': _controllers['asr']!.text.trim(),
+            'maghrib': calculatedMaghribTime(latitude, longitude),
+            'isha': _controllers['isha']!.text.trim(),
+          };
+
+          final Uint8List? watermarkedBytes = await addPhotoWatermark(
+            photoPath: photoPath,
+            masjidName: name,
+            prayerTimes: prayerTimesForWatermark,
+          );
+
+          final Uint8List bytes = watermarkedBytes ?? await File(photoPath).readAsBytes();
           if (bytes.lengthInBytes <= 450000) photoBase64 = base64Encode(bytes);
         } catch (error) {
           debugPrint('Noor ▸ could not encode proof: $error');
@@ -7113,7 +7213,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         'fajr': _controllers['fajr']!.text.trim(),
         'dhuhr': _controllers['dhuhr']!.text.trim(),
         'asr': _controllers['asr']!.text.trim(),
-        'maghrib': _controllers['maghrib']!.text.trim(),
+        'maghrib': calculatedMaghribTime(latitude, longitude),
         'isha': _controllers['isha']!.text.trim(),
         'juma': _controllers['juma']!.text.trim(),
         'latitude': latitude,
@@ -7551,7 +7651,7 @@ class PrayerTimeField extends StatefulWidget {
 
   final PrayerInfo prayer;
   final TextEditingController controller;
-  final FocusNode focusNode;
+  final FocusNode focusNode; // Kept for backwards compatibility but no longer used
   final String? Function(String?) validator;
 
   @override
@@ -7560,6 +7660,7 @@ class PrayerTimeField extends StatefulWidget {
 
 class _PrayerTimeFieldState extends State<PrayerTimeField> {
   bool _filled = false;
+  String? _validationError;
 
   @override
   void initState() {
@@ -7579,44 +7680,126 @@ class _PrayerTimeFieldState extends State<PrayerTimeField> {
     super.dispose();
   }
 
+  Future<void> _pickTime() async {
+    if (widget.prayer.key == 'maghrib') return;
+    TimeOfDay initial = TimeOfDay.now();
+    final String current = widget.controller.text.trim();
+    if (current.isNotEmpty && RegExp(r'^\d{1,2}:\d{2}$').hasMatch(current)) {
+      final List<String> parts = current.split(':');
+      initial = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    }
+
+    final TimeOfDay? picked =
+        await showTimePicker(context: context, initialTime: initial);
+    if (picked == null || !mounted) return;
+
+    widget.controller.text =
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+
+    // Trigger validation
+    _validationError = widget.validator(widget.controller.text);
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
-    return TextFormField(
-      controller: widget.controller,
-      focusNode: widget.focusNode,
+    final String timeValue = widget.controller.text.trim();
+    final bool isEmpty = timeValue.isEmpty;
+    final Color textColor = isEmpty ? NoorColors.muted : NoorColors.ink;
+
+    return FormField<String>(
+      initialValue: timeValue,
       validator: widget.validator,
-      keyboardType: const TextInputType.numberWithOptions(decimal: false),
-      inputFormatters: <TextInputFormatter>[
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9:]')),
-        LengthLimitingTextInputFormatter(5),
-      ],
-      // The field is filled white by the theme, so a *dark* value is the only
-      // spelling a reader can actually see — the accent beige (#D7B899) reads
-      // as blank on white, which is how a saved time looked like an empty box.
-      style: GoogleFonts.outfit(
-        fontSize: 15,
-        fontWeight: FontWeight.w700,
-        color: _filled ? NoorColors.ink : NoorColors.muted,
-        letterSpacing: 0.6,
-      ),
-      decoration: InputDecoration(
-        labelText: '${widget.prayer.label} • ${widget.prayer.arabic}',
-        hintText: 'HH:MM',
-        // Same rule for the glyphs: the light accent vanishes on the white
-        // fill, so they take the deepened shade of it instead.
-        prefixIcon: Icon(widget.prayer.icon, color: NoorColors.emeraldDeep, size: 20),
-        suffixIcon: IconButton(
-          tooltip: 'Edit ${widget.prayer.label}',
-          onPressed: () {
-            widget.focusNode.requestFocus();
-            widget.controller.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: widget.controller.text.length,
-            );
-          },
-          icon: const Icon(Icons.edit_outlined, size: 18, color: NoorColors.emeraldDeep),
-        ),
-      ),
+      builder: (FormFieldState<String> state) {
+        final String? errorText = state.errorText;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            InkWell(
+              onTap: () async {
+                await _pickTime();
+                state.didChange(widget.controller.text.trim());
+              },
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                decoration: BoxDecoration(
+                  color: NoorColors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: errorText != null
+                        ? NoorColors.danger
+                        : (isEmpty
+                            ? NoorColors.gold.withValues(alpha: 0.5)
+                            : NoorColors.gold),
+                  ),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: NoorColors.cardGreen,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        widget.prayer.icon,
+                        size: 16,
+                        color: NoorColors.emeraldDeep,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            '${widget.prayer.label} • ${widget.prayer.arabic}',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: NoorColors.muted,
+                            ),
+                          ),
+                          if (errorText != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                errorText,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 10.5,
+                                  color: NoorColors.danger,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isEmpty ? 'Tap to set' : timeValue,
+                      style: GoogleFonts.outfit(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                        letterSpacing: isEmpty ? 0 : 0.6,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      isEmpty ? Icons.schedule_outlined : Icons.access_time,
+                      size: 17,
+                      color: textColor,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
