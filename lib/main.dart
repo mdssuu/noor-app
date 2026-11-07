@@ -1166,6 +1166,16 @@ String formatPlacemark(geocoding.Placemark place) {
 //  DOMAIN MODEL
 // ===========================================================================
 
+String calculatedMaghribTime(double latitude, double longitude) {
+  final LocalPrayerTimes day = AppSettings.instance.compute(
+    latitude: latitude,
+    longitude: longitude,
+  );
+  final DateTime? sunset = day.times['sunset'];
+  if (sunset == null) return '--:--';
+  return DateFormat('HH:mm').format(sunset.add(const Duration(minutes: 2)));
+}
+
 class Masjid {
   const Masjid({
     required this.id,
