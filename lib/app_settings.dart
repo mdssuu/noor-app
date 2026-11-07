@@ -144,7 +144,7 @@ AzanSound azanSoundByKey(String key) {
 const List<String> kNotifiablePrayers = <String>['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
 
 /// The three states a Home bell can hold, asked of the reader in the bell's
-/// dialog (Azaan / Mute / Off):
+/// dialog (Azaan / Mute / Band):
 ///
 /// * `azan` — the banner *and* the recitation, the full reminder. The banner
 ///   is part of this answer, not a separate option: a recitation nobody can
@@ -261,7 +261,7 @@ const String kAzaanTimingBoth = 'both';
 const String kAzaanTimingNone = 'none';
 
 /// The stored value used when nothing has been picked yet.
-const String kAzaanTimingDefault = kAzaanTimingJamaatOnly;
+const String kAzaanTimingDefault = kAzaanTimingAwwalOnly;
 
 /// Dropdown order, exactly as the Settings rows appear.
 ///
@@ -346,8 +346,7 @@ class NewUserDefaults {
             ? raw['madhab'] as String
             : builtin.madhab;
 
-    final String timeFormat =
-        raw['timeFormat'] == '24' ? '24' : builtin.timeFormat;
+    const String timeFormat = '12';
 
     final int hijri = raw['hijriAdjustment'] is num
         ? (raw['hijriAdjustment'] as num).toInt().clamp(-7, 7).toInt()
@@ -747,9 +746,15 @@ class AppSettings extends ChangeNotifier {
 
   /// prayer key → whether its reminder is switched on at all.
   ///
-  /// New profiles start with reminders enabled at prayer time. Values loaded
-  /// from preferences always win, so existing users keep their choices.
+  /// It starts **off, for every prayer** — a profile nobody has spoken to
+  /// rings for nobody. Silence is the app's opening answer, not something a
+  /// reader has to go and switch off, and it can only be left behind by a
+  /// real answer: the Home bell's own dialog, or the switch in Settings.
+  /// Nothing here rewrites an existing value, so a reader who *did* choose
+  /// keeps exactly what they chose.
   final Map<String, bool> _notifyOn = <String, bool>{
+    // New users receive a reminder at the prayer time by default. Existing
+    // choices are loaded below and are never overwritten.
     for (final String key in kNotifiablePrayers) key: true,
   };
 
@@ -1102,7 +1107,7 @@ class AppSettings extends ChangeNotifier {
       _scope = prefs.getString(_kActiveProfile) ?? _scope;
       _method = prefs.getString(_key(_kMethod)) ?? 'muslimWorldLeague';
       _madhab = prefs.getString(_key(_kMadhab)) ?? 'shafi';
-      _timeFormat = prefs.getString(_key(_kTimeFormat)) ?? '12';
+      _timeFormat = '12';
       _hijriAdjustment = prefs.getInt(_key(_kHijri)) ?? 0;
       _customLat = prefs.getDouble(_key(_kCustomLat));
       _customLng = prefs.getDouble(_key(_kCustomLng));
@@ -1253,9 +1258,11 @@ class AppSettings extends ChangeNotifier {
   }
 
   void setTimeFormat(String format) {
-    _timeFormat = format;
+    // The app uses one consistent 12-hour display; keep this method for
+    // compatibility with older profiles and admin data.
+    _timeFormat = '12';
     notifyListeners();
-    _put((SharedPreferences p) => p.setString(_key(_kTimeFormat), format));
+    _put((SharedPreferences p) => p.setString(_key(_kTimeFormat), '12'));
   }
 
   /// Chooses whose board the Today card quotes; `''` hands it back to the
@@ -1501,9 +1508,11 @@ class AppSettings extends ChangeNotifier {
     _notificationsEnabled = defaults.notificationsEnabled;
     for (final String prayer in kNotifiablePrayers) {
       _notifyOffsets[prayer] = defaults.minutesBefore;
-      // New users receive an enabled reminder at the selected offset. Existing
-      // profiles are never seeded again, so their saved choice is preserved.
-      _notifyOn[prayer] = true;
+      // Seeding installs the owner's *silence* too: the seeded profile is
+      // one that has never answered, and "never answered" is off. The
+      // offsets are ready and waiting; the ringing itself is the reader's
+      // to ask for, in the bell dialog or in Settings.
+      _notifyOn[prayer] = false;
       _favModes[prayer] = kFavModeAt;
     }
 
@@ -1570,17 +1579,17 @@ class AppSettings extends ChangeNotifier {
       calculationParameters: buildParameters(),
     );
 
-    final DateTime sunset = localisePrayerTime(raw.sunset, date);
     final Map<String, DateTime> times = <String, DateTime>{
       'fajr': localisePrayerTime(raw.fajr, date),
       'sunrise': localisePrayerTime(raw.sunrise, date),
       'dhuhr': localisePrayerTime(raw.dhuhr, date),
       'asr': localisePrayerTime(raw.asr, date),
-      // Noor's fixed Maghrib Awwal rule: two minutes after sunset. Never use
-      // a board's edited Jamaat value for the calculated prayer time.
-      'maghrib': sunset.add(const Duration(minutes: 2)),
+      'maghrib': localisePrayerTime(raw.maghrib, date),
       'isha': localisePrayerTime(raw.isha, date),
-      'sunset': sunset,
+      // The sun's own going-down, which the boards print under the five as
+      // "Sunset" and which the Home's day-strip shows beside the sunrise.
+      // It is *not* a prayer — Maghrib is the prayer that opens at it.
+      'sunset': localisePrayerTime(raw.sunset, date),
     };
 
     final DateTime tomorrow = DateTime(date.year, date.month, date.day + 1);

@@ -328,20 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     onTap: () => _settings.setMadhab('hanafi'),
                   ),
                 ]),
-                _label('Time format'),
-                _optionRow(<Widget>[
-                  _option(
-                    label: '12 hour  ·  05:30 AM',
-                    selected: _settings.timeFormat != '24',
-                    onTap: () => _settings.setTimeFormat('12'),
-                  ),
-                  const SizedBox(width: 8),
-                  _option(
-                    label: '24 hour  ·  05:30',
-                    selected: _settings.timeFormat == '24',
-                    onTap: () => _settings.setTimeFormat('24'),
-                  ),
-                ]),
+
               ],
             ),
           ),
@@ -538,10 +525,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ),
                 _hint(
-                  'Silence is the default now: nothing is scheduled until a '
-                  'reader asks for the Azaan. Which prayers ring, and how '
-                  'early, is asked for on Home — this screen holds what is '
-                  'the same for every prayer.',
+                  'New users start with every prayer set to ring at its prayer '
+                  'time. Which prayers ring, and how early, is chosen on Home — '
+                  'this screen holds what is the same for every prayer.',
                 ),
                 if (_settings.notificationsEnabled)
                   // The mode that says which clock may ring at all — the

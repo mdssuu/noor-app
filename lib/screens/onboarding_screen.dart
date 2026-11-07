@@ -51,6 +51,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    // Fresh profiles already default to -1 (At time) in AppSettings. Do not
+    // write here: onboarding can be reopened and must never overwrite an
+    // existing user's chosen offset.
     AzanPlayer.instance.addListener(_playbackChanged);
     _previewPlaying = AzanPlayer.instance.playingKey == _settings.azanSound;
   }

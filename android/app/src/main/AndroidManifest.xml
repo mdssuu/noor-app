@@ -88,6 +88,13 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Keep a direct launcher filter so the Flutter tool can discover
+                 the launch activity. Launcher aliases below still provide the
+                 selectable icon variants on Android. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
             <!-- The MAIN/LAUNCHER filter has moved down to the aliases: the
                  launcher icon is drawn from whichever component holds that
                  filter, and the owner can switch between the four below
