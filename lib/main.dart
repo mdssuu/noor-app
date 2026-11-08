@@ -1815,7 +1815,10 @@ class ScanFlow {
   /// One photo + OCR pass from the chosen source.
   ///
   /// Returns `null` when the user backs out of the picker.
-  static Future<ScanResult?> capture({ImageSource source = ImageSource.camera}) async {
+  static Future<ScanResult?> capture({
+    ImageSource source = ImageSource.camera,
+    ValueChanged<String>? onProgress,
+  }) async {
     final ImagePicker picker = ImagePicker();
     // On-device OCR reads small board text far better from a big, sharp frame
     // than from a compressed thumbnail — 1280px was losing the digits.
@@ -1827,6 +1830,7 @@ class ScanFlow {
     );
     if (shot == null) return null;
 
+    onProgress?.call('Photo captured…');
     // Gemini and ML Kit run side by side rather than in turn. Gemini is the
     // only one that can tell a Jamaat column from a Start column; ML Kit is
     // what survives a missing key, a dead network, or a refusal. Both are
@@ -1836,12 +1840,15 @@ class ScanFlow {
     // Run local OCR first. Its text gives the cloud model the labels and
     // numbers it can use to correct column/order mistakes, while the image
     // still lets the model verify the actual board visually.
+    onProgress?.call('Extracting text from photo…');
     final RecognizedText? localText = await _readOnDevice(shot);
     final String extractedText = localText?.text ?? '';
+    onProgress?.call('Checking prayer times with AI…');
     final GeminiOcrResult? gemini = await GeminiOcrService.extractJamaatTimes(
       bytes,
       extractedText: extractedText.isEmpty ? null : extractedText,
     );
+    onProgress?.call('Finishing up…');
     final OcrResult onDevice = MasjidOcrParser.parse(extractedText);
     final OcrResult ocr = _mergeReads(onDevice, gemini);
 
@@ -5385,6 +5392,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? ScanFlow.manual()
           : await ScanFlow.capture(
               source: choice == ScanSource.gallery ? ImageSource.gallery : ImageSource.camera,
+              onProgress: (String message) {
+                if (mounted && _scanning) setState(() => _scanStatus = message);
+              },
             );
       if (result == null || !mounted) return;
 
@@ -7385,8 +7395,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
           ),
         ],
       ),
-      body: Form(
-        key: _formKey,
+      body: Stack(
+        children: <Widget>[
+          Form(
+            key: _formKey,
         autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -7651,6 +7663,41 @@ class _VerificationScreenState extends State<VerificationScreen> {
             ),
           ],
         ),
+          ),
+          if (_rescanning)
+            Positioned.fill(
+              child: ColoredBox(
+                color: Color(0xB8001715),
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 34),
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: NoorColors.emeraldDeep,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: NoorColors.gold.withValues(alpha: 0.65)),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const CircularProgressIndicator(color: NoorColors.gold),
+                        const SizedBox(height: 18),
+                        Text('Processing photo…', style: GoogleFonts.outfit(
+                          color: NoorColors.onGlass,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        )),
+                        const SizedBox(height: 6),
+                        Text('Extracting prayer times, please wait.',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(color: NoorColors.onGlassMuted, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 14),
