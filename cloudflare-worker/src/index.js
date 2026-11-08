@@ -93,12 +93,24 @@ export default {
             max_tokens: 512,
           }),
         });
+        const candidateRaw = await candidate.clone().text();
         upstream = candidate;
-        if (candidate.ok) break;
+        if (candidate.ok && candidateRaw.trim()) break;
       }
     }
 
-    const raw = await upstream.text();
+    let raw = await upstream.text();
+    if (provider === 'openrouter') {
+      try {
+        const parsed = JSON.parse(raw);
+        const content = parsed?.choices?.[0]?.message?.content;
+        if (!content && parsed?.choices?.[0]?.message?.reasoning) {
+          raw = JSON.stringify({
+            choices: [{ message: { content: parsed.choices[0].message.reasoning } }],
+          });
+        }
+      } catch (_) {}
+    }
     if (!upstream.ok) {
       console.error('Gemini upstream failure', upstream.status, raw.slice(0, 500));
       return reply({
