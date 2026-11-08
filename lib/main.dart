@@ -189,8 +189,15 @@ class NoorApp extends StatelessWidget {
       // `context` after that State is gone is exactly what the old rename
       // crash did. (A `Builder` wrapped *around* MaterialApp would be the
       // opposite: no Material, no Theme, no Navigator above it.)
-      builder: (BuildContext appContext, Widget? child) => Builder(
-        builder: (_) => child ?? const SizedBox.shrink(),
+      builder: (BuildContext appContext, Widget? child) => AnimatedBuilder(
+        animation: AppSettings.instance,
+        builder: (_, Widget? current) => MediaQuery(
+          data: MediaQuery.of(appContext).copyWith(
+            textScaler: TextScaler.linear(AppSettings.instance.fontScale),
+          ),
+          child: current ?? const SizedBox.shrink(),
+        ),
+        child: child,
       ),
       home: const RootGate(),
     );

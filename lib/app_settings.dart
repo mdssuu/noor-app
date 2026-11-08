@@ -582,6 +582,7 @@ class AppSettings extends ChangeNotifier {
   static const String _kMethod = 'calcMethod';
   static const String _kMadhab = 'madhab';
   static const String _kTimeFormat = 'timeFormat';
+  static const String _kFontScale = 'fontScale';
   static const String _kHijri = 'hijriAdjustment';
   static const String _kCustomLat = 'customLat';
   static const String _kCustomLng = 'customLng';
@@ -653,6 +654,7 @@ class AppSettings extends ChangeNotifier {
     _kMethod,
     _kMadhab,
     _kTimeFormat,
+    _kFontScale,
     _kHijri,
     _kCustomLat,
     _kCustomLng,
@@ -708,6 +710,7 @@ class AppSettings extends ChangeNotifier {
   String _method = 'muslimWorldLeague';
   String _madhab = 'shafi';
   String _timeFormat = '12';
+  double _fontScale = 1.0;
   int _hijriAdjustment = 0;
   double? _customLat;
   double? _customLng;
@@ -806,6 +809,14 @@ class AppSettings extends ChangeNotifier {
   bool get isHanafi => _madhab == 'hanafi';
   String get madhabKey => _madhab;
   String get timeFormat => _timeFormat;
+
+  double get fontScale => _fontScale;
+
+  void setFontScale(double value) {
+    _fontScale = value.clamp(0.85, 1.30).toDouble();
+    notifyListeners();
+    _put((SharedPreferences p) => p.setDouble(_key(_kFontScale), _fontScale));
+  }
   int get hijriAdjustment => _hijriAdjustment;
   bool get notificationsEnabled => _notificationsEnabled;
 
@@ -1108,6 +1119,7 @@ class AppSettings extends ChangeNotifier {
       _method = prefs.getString(_key(_kMethod)) ?? 'muslimWorldLeague';
       _madhab = prefs.getString(_key(_kMadhab)) ?? 'shafi';
       _timeFormat = '12';
+      _fontScale = (prefs.getDouble(_key(_kFontScale)) ?? 1.0).clamp(0.85, 1.30).toDouble();
       _hijriAdjustment = prefs.getInt(_key(_kHijri)) ?? 0;
       _customLat = prefs.getDouble(_key(_kCustomLat));
       _customLng = prefs.getDouble(_key(_kCustomLng));

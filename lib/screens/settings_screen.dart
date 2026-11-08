@@ -262,6 +262,41 @@ class _SettingsScreenState extends State<SettingsScreen>
       body: ListView(
         padding: const EdgeInsets.fromLTRB(4, 4, 4, 32),
         children: <Widget>[
+          GoldCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _label('Text size'),
+                Text(
+                  'Adjust the app text size for easier reading.',
+                  style: GoogleFonts.outfit(fontSize: 11.5, color: NoorColors.onGlassMuted),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    const Icon(Icons.text_decrease_outlined, color: NoorColors.onGlassMuted),
+                    Expanded(
+                      child: Slider(
+                        value: _settings.fontScale,
+                        min: 0.85,
+                        max: 1.30,
+                        divisions: 9,
+                        label: '${(_settings.fontScale * 100).round()}%',
+                        onChanged: _settings.setFontScale,
+                      ),
+                    ),
+                    const Icon(Icons.text_increase_outlined, color: NoorColors.emeraldDeep),
+                  ],
+                ),
+                Text(
+                  '${(_settings.fontScale * 100).round()}% text size',
+                  style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600, color: NoorColors.onGlass),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           // ================================================== 1. CALCULATION
           const SectionHeader(title: 'Prayer calculation'),
           GoldCard(
