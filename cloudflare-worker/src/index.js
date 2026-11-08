@@ -30,11 +30,41 @@ function responseText(json, provider) {
   return json?.choices?.[0]?.message?.reasoning || '';
 }
 
+function extractTimes(text) {
+  if (typeof text !== 'string') return {};
+  const result = {};
+  const labels = 'fajr|dhuhr|asr|maghrib|isha|juma|jumuah|friday';
+  const re = new RegExp(`(?:[\\"']?(${labels})[\\"']?)(?:\\s|_|-)*[:=：-]?(?:\\s|：)*([0-9]{1,2})\\s*[:.]\\s*([0-9]{2})\\s*(am|pm)?`, 'ig');
+  for (const match of text.matchAll(re)) {
+    let key = match[1].toLowerCase();
+    if (key === 'jumuah' || key === 'friday') key = 'juma';
+    let hour = Number(match[2]);
+    const minute = Number(match[3]);
+    const meridiem = (match[4] || '').toLowerCase();
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    if (hour <= 23 && minute <= 59) result[key] = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+  return result;
+}
+
+function normalizeResult(text) {
+  if (typeof text !== 'string') return null;
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      const object = JSON.parse(text.slice(start, end + 1));
+      const times = extractTimes(JSON.stringify(object));
+      if (Object.keys(times).length) return { name: object.name || '', ...times };
+    } catch (_) {}
+  }
+  const times = extractTimes(text);
+  return Object.keys(times).length ? times : null;
+}
+
 function containsPrayerTime(text) {
-  if (typeof text !== 'string') return false;
-  // Accept JSON with at least one prayer value, including numeric values or
-  // values without quotes from free providers. Reject `{}` and prose.
-  return /["']?(?:fajr|dhuhr|asr|maghrib|isha|juma)["']?\s*:\s*["']?\s*\d{1,2}\s*[:.]\s*\d{2}/i.test(text);
+  return Boolean(normalizeResult(text));
 }
 
 async function usableResponse(response, provider) {
@@ -168,6 +198,8 @@ export default {
       console.error(`${provider} empty response`, raw.slice(0, 1000));
       return reply({ error: `Empty ${provider} response`, details: raw.slice(0, 500) }, 502);
     }
-    return new Response(result, { status: 200, headers: corsHeaders() });
+    const normalized = normalizeResult(result);
+    if (!normalized) return reply({ error: `No usable prayer times in ${provider} response` }, 502);
+    return new Response(JSON.stringify(normalized), { status: 200, headers: corsHeaders() });
   },
 };
