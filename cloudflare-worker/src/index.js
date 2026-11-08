@@ -52,7 +52,14 @@ export default {
       },
     );
     const raw = await upstream.text();
-    if (!upstream.ok) return reply({ error: 'Gemini request failed' }, 502);
+    if (!upstream.ok) {
+      console.error('Gemini upstream failure', upstream.status, raw.slice(0, 500));
+      return reply({
+        error: 'Gemini request failed',
+        upstreamStatus: upstream.status,
+        details: raw.slice(0, 500),
+      }, 502);
+    }
     let json;
     try { json = JSON.parse(raw); } catch (_) { return reply({ error: 'Invalid Gemini response' }, 502); }
     const result = json?.candidates?.[0]?.content?.parts?.[0]?.text;
