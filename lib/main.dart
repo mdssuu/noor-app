@@ -4171,6 +4171,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _locality = 'Near Mumbai';
   String _query = '';
   bool _scanning = false;
+  String _scanStatus = 'Reading the board…';
   List<String> _favourites = <String>[];
   bool _favouritesLoaded = false;
 
@@ -5366,8 +5367,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _runScan(ScanSource choice) async {
     if (_scanning) return;
-    setState(() => _scanning = true);
+    setState(() {
+      _scanning = true;
+      _scanStatus = 'Opening camera…';
+    });
     try {
+      // Keep the message alive while the picker returns and the local/cloud
+      // OCR pass completes. The delayed updates are guarded so cancellation or
+      // a fast local-only scan cannot update a disposed screen.
+      unawaited(Future<void>.delayed(const Duration(seconds: 2), () {
+        if (mounted && _scanning) setState(() => _scanStatus = 'Reading text…');
+      }));
+      unawaited(Future<void>.delayed(const Duration(seconds: 6), () {
+        if (mounted && _scanning) setState(() => _scanStatus = 'Checking prayer times…');
+      }));
       final ScanResult? result = choice == ScanSource.manual
           ? ScanFlow.manual()
           : await ScanFlow.capture(
@@ -5454,7 +5467,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final ImageProvider? avatarImage = _avatarImage();
 
-    return NoorScaffold(
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        NoorScaffold(
       appBar: AppBar(
         titleSpacing: 16,
         backgroundColor: Colors.transparent,
@@ -5505,6 +5521,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         index: _tab,
         onChanged: (int i) => setState(() => _tab = i),
       ),
+    ),
+        if (_scanning)
+          Positioned.fill(
+            child: ColoredBox(
+              color: Color(0xB8001715),
+              child: Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 34),
+                  padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
+                  decoration: BoxDecoration(
+                    color: NoorColors.emeraldDeep,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: NoorColors.gold.withValues(alpha: 0.65)),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 28),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: NoorColors.gold,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        _scanStatus,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: NoorColors.onGlass,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        'Please wait while Noor checks the prayer times.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: NoorColors.onGlassMuted,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
