@@ -106,7 +106,10 @@ class GeminiOcrService {
   // OCR is also performed locally. Do not make the review screen wait through
   // several long cloud retries when the network/model is slow.
   static const int _maxAttempts = 1;
-  static const Duration _attemptTimeout = Duration(seconds: 18);
+  // Free fallback vision models can take longer than Gemini. Keep one cloud
+  // attempt, but allow enough time for the Worker to move past a rate-limited
+  // provider before declaring the scan a local-only result.
+  static const Duration _attemptTimeout = Duration(seconds: 45);
   static const List<Duration> _retryDelay = <Duration>[];
 
   /// Asks Gemini to read the board. Returns `null` — never throws — whenever
