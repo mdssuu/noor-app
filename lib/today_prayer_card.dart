@@ -1018,7 +1018,6 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
   /// Names whose times the rows below are quoting, and opens the chooser.
   Widget _boardChip(BuildContext context) {
     final Masjid? board = widget.board;
-    if (board == null) return const SizedBox.shrink();
 
     return InkWell(
       onTap: () => unawaited(_chooseBoard(context)),
@@ -1037,11 +1036,13 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
             const SizedBox(width: 6),
             Flexible(
               child: Text(
-                'Jamaat times from ${board.name.isEmpty ? 'Unnamed Masjid' : board.name}',
+                board == null
+                    ? 'Select a favourite masjid for Jamaat times'
+                    : 'Jamaat times from ${board.name.isEmpty ? 'Unnamed Masjid' : board.name}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 10.5,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: NoorColors.ink,
                 ),
@@ -1391,12 +1392,13 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                 ),
               ),
               if (jamaat.isNotEmpty && e.key != 'juma')
-                // …and the Awwal time stays right there beneath it, small.
+                // …and the Awwal time stays right there beneath it.
                 Text(
-                  settings.formatShort(e.time),
+                  'Awwal ${settings.formatShort(e.time)}',
                   maxLines: 1,
                   style: GoogleFonts.outfit(
-                    fontSize: 10.5,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
                     color: NoorColors.muted,
                   ),
                 ),
