@@ -65,6 +65,7 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_ARE_NOTIFICATIONS_ENABLED = "areNotificationsEnabled"
         private const val METHOD_REQUEST_EXACT_ALARM = "requestExactAlarm"
         private const val METHOD_REQUEST_NO_BATTERY_OPTIMISATION = "requestNoBatteryOptimisation"
+        private const val METHOD_CAN_IGNORE_BATTERY_OPTIMISATION = "canIgnoreBatteryOptimisation"
         private const val METHOD_CAN_USE_FULLSCREEN_INTENT = "canUseFullScreenIntent"
         private const val METHOD_REQUEST_FULLSCREEN_INTENT = "requestFullScreenIntent"
         private const val METHOD_CAN_DRAW_OVERLAYS = "canDrawOverlays"
@@ -313,6 +314,13 @@ class MainActivity : FlutterActivity() {
                     AzaanAlarms.openExactAlarmSettings(this)
                     result.success(null)
                 }
+
+                METHOD_CAN_IGNORE_BATTERY_OPTIMISATION -> result.success(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        getSystemService(android.os.PowerManager::class.java)
+                            ?.isIgnoringBatteryOptimizations(packageName) == true
+                    } else true
+                )
 
                 METHOD_REQUEST_NO_BATTERY_OPTIMISATION -> {
                     AzaanAlarms.openBatteryOptimisationPrompt(this)

@@ -4632,7 +4632,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await AzaanAlarm.requestExactAlarm();
       await Future<void>.delayed(const Duration(milliseconds: 1200));
     }
-    await AzaanAlarm.requestNoBatteryOptimisation();
+    if (!await AzaanAlarm.canIgnoreBatteryOptimisation()) {
+      await AzaanAlarm.requestNoBatteryOptimisation();
+    }
     if (!await AzaanAlarm.canUseFullScreenIntent()) {
       await AzaanAlarm.requestFullScreenIntent();
     }

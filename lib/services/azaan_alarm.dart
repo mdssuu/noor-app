@@ -310,6 +310,9 @@ class AzaanAlarm {
 
   /// Asks to be excluded from battery optimisation. Doze delays the
   /// notification and would otherwise let a 1-minute test silently miss.
+  static Future<bool> canIgnoreBatteryOptimisation() async =>
+      await _call('canIgnoreBatteryOptimisation') == true;
+
   static Future<void> requestNoBatteryOptimisation() =>
       _call('requestNoBatteryOptimisation');
 
