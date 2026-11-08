@@ -73,13 +73,13 @@ export default {
           'X-Title': 'Noor Masjid Time',
         },
         body: JSON.stringify({
-          model: env.OPENROUTER_MODEL || 'openrouter/free',
+          model: env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free',
           messages: [{ role: 'user', content: [
             { type: 'text', text: `${PROMPT}\n${prompt}` },
             { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${body.image}` } },
           ] }],
           temperature: 0,
-          max_tokens: 256,
+          max_tokens: 512,
         }),
       });
     }
