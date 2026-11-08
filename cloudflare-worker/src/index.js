@@ -72,7 +72,9 @@ export default {
       const models = env.OPENROUTER_MODEL
         ? [env.OPENROUTER_MODEL]
         : [
+            // Free vision routes only; never silently use a paid model.
             'google/gemma-4-26b-a4b-it:free',
+            'google/gemma-4-31b-it:free',
             'nvidia/nemotron-3.5-super-vl:free',
             'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
             'openrouter/free',
