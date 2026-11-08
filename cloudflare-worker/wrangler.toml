@@ -4,4 +4,5 @@ compatibility_date = "2026-11-07"
 workers_dev = true
 
 [vars]
-GEMINI_MODEL = "gemini-3.8-flash"
+# Stable free Gemini Flash model; do not use Pro or experimental models.
+GEMINI_MODEL = "gemini-2.5-flash"

@@ -32,8 +32,9 @@ function responseText(json, provider) {
 
 function containsPrayerTime(text) {
   if (typeof text !== 'string') return false;
-  // Do not stop on Gemini/OpenRouter's HTTP 200 `{}` or prose with no values.
-  return /["'](?:fajr|dhuhr|asr|maghrib|isha|juma)["']\s*:\s*["']\s*\d{1,2}\s*[:.]\s*\d{2}/i.test(text);
+  // Accept JSON with at least one prayer value, including numeric values or
+  // values without quotes from free providers. Reject `{}` and prose.
+  return /["']?(?:fajr|dhuhr|asr|maghrib|isha|juma)["']?\s*:\s*["']?\s*\d{1,2}\s*[:.]\s*\d{2}/i.test(text);
 }
 
 async function usableResponse(response, provider) {
@@ -68,7 +69,7 @@ export default {
     const extractedText = typeof body.extractedText === 'string' && body.extractedText.trim()
       ? ` On-device OCR extracted this possibly noisy text; use it as a cross-check, not as truth:\n${body.extractedText.slice(0, 4000)}`
       : '';
-    const model = env.GEMINI_MODEL || 'gemini-3.8-flash';
+    const model = env.GEMINI_MODEL || 'gemini-2.5-flash';
     const prompt = `Read the Jamaat times from this board.${hint}${extractedText}`;
     let upstream;
     let provider = 'gemini';
@@ -93,7 +94,7 @@ export default {
     // OpenRouter is used only when Gemini is unavailable or quota-limited.
     // Try several currently-listed free vision routes; free pools are shared
     // and any one of them may be temporarily rate-limited.
-    if (!(await usableResponse(upstream, 'gemini')) && hasOpenRouter) {
+    if ((!upstream || !(await usableResponse(upstream, provider))) && hasOpenRouter) {
       provider = 'openrouter';
       const models = env.OPENROUTER_MODEL
         ? [env.OPENROUTER_MODEL]
