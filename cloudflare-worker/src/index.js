@@ -93,7 +93,7 @@ export default {
     // OpenRouter is used only when Gemini is unavailable or quota-limited.
     // Try several currently-listed free vision routes; free pools are shared
     // and any one of them may be temporarily rate-limited.
-    if ((!upstream || !upstream.ok) && hasOpenRouter) {
+    if (!(await usableResponse(upstream, 'gemini')) && hasOpenRouter) {
       provider = 'openrouter';
       const models = env.OPENROUTER_MODEL
         ? [env.OPENROUTER_MODEL]
