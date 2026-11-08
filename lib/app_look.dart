@@ -1610,7 +1610,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 10.5,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: NoorColors.ink.withValues(alpha: 0.72),
                 ),
@@ -1649,7 +1649,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 26,
+                  fontSize: 29,
                   fontWeight: FontWeight.w700,
                   color: NoorColors.ink,
                   height: 1.1,
@@ -1677,7 +1677,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 13,
+                  fontSize: 14.5,
                   fontWeight: FontWeight.w600,
                   color: NoorColors.ink.withValues(alpha: 0.78),
                 ),
@@ -1817,7 +1817,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 'Awwal',
                 maxLines: 1,
                 style: GoogleFonts.outfit(
-                  fontSize: 9.5,
+                  fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.1,
                   color: NoorColors.muted,
@@ -1829,7 +1829,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 26,
+                  fontSize: 29,
                   fontWeight: FontWeight.w700,
                   color: NoorColors.ink,
                   height: 1.1,
@@ -1852,7 +1852,7 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 13,
+                  fontSize: 14.5,
                   fontWeight: FontWeight.w600,
                   color: NoorColors.ink.withValues(alpha: 0.78),
                 ),

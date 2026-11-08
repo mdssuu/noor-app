@@ -61,7 +61,6 @@ import 'screens/onboarding_screen.dart';
 import 'screens/qibla_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/tasbeeh_screen.dart';
-import 'screens/tracker_screen.dart';
 import 'services/azaan_alarm.dart';
 import 'services/app_config.dart';
 import 'services/azan_player.dart';
@@ -5804,7 +5803,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     _position?.longitude ?? LocationService.fallbackAnchor.y,
               )),
               onOpenTasbeeh: () => _openTool(const TasbeehScreen()),
-              onOpenCalendar: () => _openTool(const TrackerScreen()),
+              onOpenCalendar: _openHijriCalendar,
             ),
 
             // Always present — even with zero masjids in the collection.

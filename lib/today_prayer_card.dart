@@ -1365,7 +1365,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                 // fact twice over — which prayer, what time — so they wear
                 // one size. 13.5 read as fine print beside the hero above
                 // it; the reader's word for it was "bohot chota".
-                fontSize: 15,
+                fontSize: 16.5,
                 fontWeight: FontWeight.w700,
                 color: NoorColors.ink,
               ),
@@ -1384,7 +1384,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                     : settings.formatClockShort(jamaat),
                 maxLines: 1,
                 style: GoogleFonts.outfit(
-                  fontSize: 15,
+                  fontSize: 16.5,
                   fontWeight: FontWeight.w600,
                   color: NoorColors.ink,
                   letterSpacing: 0.2,
@@ -1396,7 +1396,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                   settings.formatShort(e.time),
                   maxLines: 1,
                   style: GoogleFonts.outfit(
-                    fontSize: 9,
+                    fontSize: 10.5,
                     color: NoorColors.muted,
                   ),
                 ),
@@ -1408,7 +1408,7 @@ class _TodayPrayerCardState extends State<TodayPrayerCard> {
                   'Ends ${settings.format(e.end!)}',
                   maxLines: 1,
                   style: GoogleFonts.outfit(
-                    fontSize: 10,
+                    fontSize: 11.5,
                     color: NoorColors.muted,
                   ),
                 ),
