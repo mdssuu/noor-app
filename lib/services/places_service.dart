@@ -220,24 +220,36 @@ Future<List<MasjidSearchResult>> nearbyMasjids({
     ],
   );
 
-  final Map<String, MasjidSearchResult> merged = <String, MasjidSearchResult>{};
+  final List<MasjidSearchResult> merged = <MasjidSearchResult>[];
   for (final List<MasjidSearchResult> batch in batches) {
     for (final MasjidSearchResult r in batch) {
       final double d = Geolocator.distanceBetween(lat, lon, r.latitude, r.longitude);
       if (d > radiusMetres) continue;
-      // Two providers describe the same building — keep the closer match.
-      final String key = '${r.latitude.toStringAsFixed(4)},${r.longitude.toStringAsFixed(4)}';
-      final MasjidSearchResult? existing = merged[key];
-      if (existing != null && (existing.distanceMetres ?? double.infinity) <= d) continue;
-      merged[key] = r.withDistance(d);
+      final int samePlace = merged.indexWhere((MasjidSearchResult existing) {
+        final double gap = Geolocator.distanceBetween(
+          existing.latitude, existing.longitude, r.latitude, r.longitude);
+        return gap < 60 || _normalisePlaceName(existing.name) == _normalisePlaceName(r.name);
+      });
+      final MasjidSearchResult candidate = r.withDistance(d);
+      if (samePlace < 0) {
+        merged.add(candidate);
+      } else if ((merged[samePlace].distanceMetres ?? double.infinity) > d) {
+        merged[samePlace] = candidate;
+      }
     }
   }
 
-  final List<MasjidSearchResult> out = merged.values.toList();
+  final List<MasjidSearchResult> out = merged;
   out.sort((MasjidSearchResult a, MasjidSearchResult b) =>
       (a.distanceMetres ?? double.infinity).compareTo(b.distanceMetres ?? double.infinity));
   return out.take(limit).toList();
 }
+
+String _normalisePlaceName(String value) => value
+    .toLowerCase()
+    .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+    .replaceAll(RegExp(r'\b(masjid|mosque|mosk)\b'), '')
+    .trim();
 
 // =============================================================================
 //  OSM implementation

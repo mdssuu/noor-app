@@ -68,7 +68,6 @@ import 'services/azan_player.dart';
 import 'services/gemini_ocr_service.dart';
 import 'services/islamic_calendar.dart';
 import 'services/places_service.dart';
-import 'services/prayer_tracker.dart';
 import 'services/prayer_widget.dart';
 import 'services/tasbeeh.dart';
 import 'today_prayer_card.dart';
@@ -4269,6 +4268,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // The switch or the permission may have been changed in system settings
     // while Noor was in the background — re-read both on the way back in.
     if (state != AppLifecycleState.resumed) return;
+    unawaited(_promptAlarmPermissions());
     unawaited(_syncLocationGate());
     unawaited(_resyncReminders());
     // Coming back is also when the home-screen widget's picture is most
@@ -4621,89 +4621,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return proceed == true;
   }
 
-  /// Device-level flag, not an account one: this is about the phone, and it
-  /// must only ever fire once.
-  static const String _kAlarmPermissionsAsked = 'azaanAlarmPermissionsAsked';
-
   /// First open only: an exact alarm is worthless if Android can still revoke
   /// it, and Doze will happily swallow one that is not exempt from battery
   /// optimisation. One rationale, then the two system screens it unlocks.
   Future<void> _promptAlarmPermissions() async {
-    if (!Platform.isAndroid) return;
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_kAlarmPermissionsAsked) == true) return;
-    } catch (_) {
-      return;
-    }
-
-    if (!mounted) return;
-    // The Android 13 notification prompt is already on its way from
-    // _bootstrap — never stack a second dialog on top of the first.
+    if (!Platform.isAndroid || !mounted) return;
     await Future<void>.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-
-    final bool proceed = await showDialog<bool>(
-          context: context,
-          builder: (BuildContext context) => AlertDialog(
-            backgroundColor: NoorColors.cream,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-            title: Text(
-              'Let the Azaan arrive on time?',
-              style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            content: Text(
-              'Three system settings decide whether the Azaan actually sounds '
-              'and can be stopped:\n\n'
-              '• Alarms & reminders — lets Noor wake on the exact minute.\n'
-              '• Battery optimisation off — stops the phone dozing through it.\n'
-              '• Full-screen alerts — puts the Azaan screen over your lock '
-              'screen, where the volume keys can stop it.\n\n'
-              'You can change any of them later in system settings.',
-              style: GoogleFonts.outfit(fontSize: 13, height: 1.6),
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text('Not now',
-                    style: GoogleFonts.outfit(
-                        color: NoorColors.muted, fontWeight: FontWeight.w600)),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text('Continue',
-                    style: GoogleFonts.outfit(
-                        color: NoorColors.emeraldDeep, fontWeight: FontWeight.w700)),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-
-    // The question is spent the moment it has been on screen — "Not now" is
-    // an answer — but a launch that dies *during* the dialog leaves the flag
-    // unset, so it asks again next time rather than never asking at all.
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_kAlarmPermissionsAsked, true);
-    } catch (_) {}
-
-    if (!proceed || !mounted) return;
-
     if (!await AzaanAlarm.canScheduleExact()) {
       await AzaanAlarm.requestExactAlarm();
-      // The exact-alarm screen is a full activity; let the system settle
-      // before the battery prompt tries to appear over it.
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
     }
     await AzaanAlarm.requestNoBatteryOptimisation();
-
-    // Android 14+ made the recitation screen a switch of its own. Without it
-    // the Azaan still sounds — but nothing of ours is over the lock screen for
-    // the volume keys to reach, which is the exact gap this flow exists to
-    // close. Pre-14 the manifest declaration is enough and this reports true.
     if (!await AzaanAlarm.canUseFullScreenIntent()) {
       await AzaanAlarm.requestFullScreenIntent();
+    }
+    if (await AzaanAlarm.needsOverlayPermission() &&
+        !await AzaanAlarm.canDrawOverlays()) {
+      await AzaanAlarm.requestOverlayPermission();
     }
   }
 

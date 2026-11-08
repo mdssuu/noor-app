@@ -24,6 +24,59 @@ class TasbeehScreen extends StatefulWidget {
 
 class _TasbeehScreenState extends State<TasbeehScreen> {
   final Tasbeeh _tasbeeh = Tasbeeh.instance;
+  final TextEditingController _duaController = TextEditingController();
+  final TextEditingController _labelController = TextEditingController();
+  final TextEditingController _arabicController = TextEditingController();
+  String _customDua = '';
+
+  Future<void> _editTasbeeh() async {
+    _labelController.text = _tasbeeh.selected.label;
+    _arabicController.text = _tasbeeh.selected.arabic;
+    final List<String>? value = await showDialog<List<String>>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('Custom tasbeeh'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(controller: _labelController, decoration: const InputDecoration(labelText: 'Name')),
+            TextField(controller: _arabicController, textDirection: TextDirection.rtl, decoration: const InputDecoration(labelText: 'Tasbeeh / Arabic text')),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, <String>[_labelController.text, _arabicController.text]), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (value != null && mounted) {
+      await _tasbeeh.setCustom(label: value[0], arabic: value[1]);
+    }
+  }
+
+  Future<void> _editDua() async {
+    _duaController.text = _customDua;
+    final String? value = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('Custom dua'),
+        content: TextField(
+          controller: _duaController,
+          autofocus: true,
+          maxLines: 5,
+          decoration: const InputDecoration(hintText: 'Write your dua here'),
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, _duaController.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (value != null && mounted) {
+      await _tasbeeh.setCustomDua(value);
+      setState(() => _customDua = value);
+    }
+  }
 
   @override
   void initState() {
@@ -43,6 +96,9 @@ class _TasbeehScreenState extends State<TasbeehScreen> {
   @override
   void dispose() {
     _tasbeeh.removeListener(_changed);
+    _duaController.dispose();
+    _labelController.dispose();
+    _arabicController.dispose();
     super.dispose();
   }
 
@@ -60,6 +116,7 @@ class _TasbeehScreenState extends State<TasbeehScreen> {
   Widget build(BuildContext context) {
     final Dhikr dhikr = _tasbeeh.selected;
     final int count = _tasbeeh.todayOf(dhikr.key);
+    if (_customDua != _tasbeeh.customDua) _customDua = _tasbeeh.customDua;
     final int roundOf = _tasbeeh.roundOf;
     final int inRound = _tasbeeh.inRound;
 
@@ -117,7 +174,16 @@ class _TasbeehScreenState extends State<TasbeehScreen> {
               },
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _editTasbeeh,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit custom tasbeeh'),
+            ),
+          ),
+          const SizedBox(height: 4),
 
           // The bead itself: the entire screen is this button.
           Center(
@@ -204,6 +270,23 @@ class _TasbeehScreenState extends State<TasbeehScreen> {
           GoldCard(
             child: Row(
               children: <Widget>[
+                const Icon(Icons.menu_book_outlined, color: NoorColors.gold),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _customDua.isEmpty ? 'Add your custom dua' : _customDua,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(onPressed: _editDua, icon: const Icon(Icons.edit_outlined)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          GoldCard(
+            child: Row(
+              children: <Widget>[
                 Expanded(
                   child: _stat(
                     'Today',
@@ -224,9 +307,8 @@ class _TasbeehScreenState extends State<TasbeehScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Text(
-              'Counted on the fingers, as it was taught: SubhanAllah '
-              'thirty-three, Alhamdulillah thirty-three, Allahu Akbar '
-              'thirty-four — then whatever you like after that.',
+              'This is your custom tasbeeh. Tap Edit custom tasbeeh above '
+              'to choose the name and Arabic text you want to count.',
               style: GoogleFonts.outfit(
                 fontSize: 11.5,
                 height: 1.5,

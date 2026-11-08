@@ -27,12 +27,10 @@ class Dhikr {
 
 /// The set offered on the bead screen — the counting of the masjid, in the
 /// order the tasbeeh itself usually carries them.
+/// The counter deliberately starts empty: each reader chooses their own
+/// tasbeeh instead of being given a fixed list of phrases.
 const List<Dhikr> kDhikr = <Dhikr>[
-  Dhikr('subhanallah', 'سُبْحَانَ ٱللَّٰه', 'SubhanAllah', roundOf: 33),
-  Dhikr('alhamdulillah', 'ٱلْحَمْدُ لِلَّٰه', 'Alhamdulillah', roundOf: 33),
-  Dhikr('allahuakbar', 'ٱللَّٰهُ أَكْبَر', 'Allahu Akbar', roundOf: 33),
-  Dhikr('tahlil', 'لَا إِلَٰهَ إِلَّا ٱللَّٰه', 'La ilaha illallah', roundOf: 99),
-  Dhikr('istighfar', 'أَسْتَغْفِرُ ٱللَّٰه', 'Astaghfirullah', roundOf: 99),
+  Dhikr('custom', 'سبحان الله', 'Custom tasbeeh', roundOf: 33),
 ];
 
 Dhikr dhikrByKey(String key) => kDhikr.firstWhere(
@@ -60,6 +58,9 @@ class Tasbeeh extends ChangeNotifier {
 
   static const String _kPrefix = 'tasbeeh::';
   static const String _kSelected = 'selected';
+  static const String _kCustomLabel = 'customLabel';
+  static const String _kCustomArabic = 'customArabic';
+  static const String _kCustomDua = 'customDua';
 
   SharedPreferences? _prefs;
   bool _loaded = false;
@@ -68,8 +69,26 @@ class Tasbeeh extends ChangeNotifier {
 
   /// Which dhikr is on the bead right now.
   String _selected = kDhikr.first.key;
+  String _customLabel = 'Custom tasbeeh';
+  String _customArabic = 'سبحان الله';
+  String _customDua = '';
+  String get customDua => _customDua;
   String get selectedKey => _selected;
-  Dhikr get selected => dhikrByKey(_selected);
+  Dhikr get selected => Dhikr('custom', _customArabic, _customLabel, roundOf: 33);
+
+  Future<void> setCustomDua(String value) async {
+    _customDua = value.trim();
+    notifyListeners();
+    await _prefs?.setString(_scopeKey(_kCustomDua), _customDua);
+  }
+
+  Future<void> setCustom({required String label, required String arabic}) async {
+    _customLabel = label.trim().isEmpty ? 'Custom tasbeeh' : label.trim();
+    _customArabic = arabic.trim().isEmpty ? 'سبحان الله' : arabic.trim();
+    notifyListeners();
+    await _prefs?.setString(_scopeKey(_kCustomLabel), _customLabel);
+    await _prefs?.setString(_scopeKey(_kCustomArabic), _customArabic);
+  }
 
   /// dhikr key → lifetime beads counted.
   final Map<String, int> _totals = <String, int>{};
@@ -146,6 +165,9 @@ class Tasbeeh extends ChangeNotifier {
       final SharedPreferences prefs = _prefs = await SharedPreferences.getInstance();
       _rollDay();
       _selected = prefs.getString(_scopeKey(_kSelected)) ?? kDhikr.first.key;
+      _customLabel = prefs.getString(_scopeKey(_kCustomLabel)) ?? _customLabel;
+      _customArabic = prefs.getString(_scopeKey(_kCustomArabic)) ?? _customArabic;
+      _customDua = prefs.getString(_scopeKey(_kCustomDua)) ?? '';
       for (final Dhikr d in kDhikr) {
         _totals[d.key] = prefs.getInt(_scopeKey('$_kPrefix${d.key}')) ?? 0;
         _today[d.key] = prefs.getInt(_scopeKey('$_kPrefix${d.key}::$_todayStamp')) ?? 0;

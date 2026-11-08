@@ -1677,9 +1677,9 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: NoorColors.ink.withValues(alpha: 0.68),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: NoorColors.ink.withValues(alpha: 0.78),
                 ),
               ),
               // The window's rail: the whole span from the moment this
@@ -1852,9 +1852,9 @@ class _NextPrayerHeroState extends State<NextPrayerHero> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: NoorColors.ink.withValues(alpha: 0.68),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: NoorColors.ink.withValues(alpha: 0.78),
                 ),
               ),
             ],
