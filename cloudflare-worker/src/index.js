@@ -73,7 +73,7 @@ export default {
           'X-Title': 'Noor Masjid Time',
         },
         body: JSON.stringify({
-          model: env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
+          model: env.OPENROUTER_MODEL || 'openrouter/free',
           messages: [{ role: 'user', content: [
             { type: 'text', text: `${PROMPT}\n${prompt}` },
             { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${body.image}` } },
