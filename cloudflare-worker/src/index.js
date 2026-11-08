@@ -20,6 +20,32 @@ function reply(body, status = 200) {
   });
 }
 
+function responseText(json, provider) {
+  if (provider === 'gemini') {
+    return json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+  const content = json?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map((part) => part?.text || '').join('');
+  return json?.choices?.[0]?.message?.reasoning || '';
+}
+
+function containsPrayerTime(text) {
+  if (typeof text !== 'string') return false;
+  // Do not stop on Gemini/OpenRouter's HTTP 200 `{}` or prose with no values.
+  return /["'](?:fajr|dhuhr|asr|maghrib|isha|juma)["']\s*:\s*["']\s*\d{1,2}\s*[:.]\s*\d{2}/i.test(text);
+}
+
+async function usableResponse(response, provider) {
+  if (!response || !response.ok) return false;
+  try {
+    const json = JSON.parse(await response.clone().text());
+    return containsPrayerTime(responseText(json, provider));
+  } catch (_) {
+    return false;
+  }
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() });
@@ -98,12 +124,14 @@ export default {
             max_tokens: 512,
           }),
         });
-        const candidateRaw = await candidate.clone().text();
         upstream = candidate;
-        if (candidate.ok && candidateRaw.trim()) break;
+        if (await usableResponse(candidate, 'openrouter')) break;
       }
     }
 
+    if (!upstream || !(await usableResponse(upstream, provider))) {
+      return reply({ error: `No provider returned usable prayer times`, provider }, 502);
+    }
     let raw = await upstream.text();
     if (provider === 'openrouter') {
       try {
