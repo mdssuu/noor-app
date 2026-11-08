@@ -1869,18 +1869,21 @@ class ScanFlow {
   /// board where the model could only pick out a couple of readings — falls
   /// through to the on-device result untouched.
   static OcrResult _mergeReads(OcrResult onDevice, GeminiOcrResult? gemini) {
-    if (gemini == null || gemini.times.length < 3) {
+    if (gemini == null || gemini.times.isEmpty) {
       debugPrint('OCR: keeping on-device result (${onDevice.times.length} time(s))'
-          '${gemini == null ? '' : ', Gemini returned ${gemini.times.length}'}');
+          '${gemini == null ? '' : ', Gemini returned no times'}');
       return onDevice;
     }
 
-    // The local reader's name and raw text are kept either way: the review
-    // screen's expander has to show what was actually photographed, and
-    // `outOfOrder` is what tells the user a column got crossed.
-    debugPrint('OCR: using Gemini Jamaat result (${gemini.times.length} time(s))');
+    // Keep local readings for prayers the model could not confidently see, but
+    // let even a partial cloud read replace the corresponding local value. A
+    // board photographed at an angle may yield only two or three AI readings;
+    // calling that a complete failure needlessly shows the red error banner.
+    final Map<String, String> combined = <String, String>{...onDevice.times};
+    combined.addAll(gemini.times);
+    debugPrint('OCR: merged Gemini Jamaat result (${gemini.times.length} time(s))');
     return OcrResult(
-      times: gemini.times,
+      times: combined,
       masjidName: (gemini.masjidName?.isNotEmpty ?? false)
           ? gemini.masjidName
           : onDevice.masjidName,

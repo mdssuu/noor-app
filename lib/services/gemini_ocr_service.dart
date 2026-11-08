@@ -271,7 +271,11 @@ class GeminiOcrService {
       }),
     );
     if (response.statusCode != 200) {
-      throw GenerativeAIException('proxy HTTP ${response.statusCode}');
+      String detail = response.body.trim();
+      if (detail.length > 180) detail = detail.substring(0, 180);
+      throw GenerativeAIException(
+        'proxy HTTP ${response.statusCode}${detail.isEmpty ? '' : ': $detail'}',
+      );
     }
     return response.body;
   }
