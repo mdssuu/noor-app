@@ -47,7 +47,11 @@ export default {
             { text: `Read the Jamaat times from this board.${hint}` },
             { inlineData: { mimeType: 'image/jpeg', data: body.image } },
           ] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0,
+            maxOutputTokens: 256,
+          },
         }),
       },
     );

@@ -1822,8 +1822,8 @@ class ScanFlow {
     final XFile? shot = await picker.pickImage(
       source: source,
       preferredCameraDevice: CameraDevice.rear,
-      maxWidth: 1920,
-      imageQuality: 90,
+      maxWidth: 1440,
+      imageQuality: 82,
     );
     if (shot == null) return null;
 

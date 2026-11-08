@@ -103,16 +103,11 @@ class GeminiOcrService {
   /// high demand` under load, 429 when the key's quota is spent, and a
   /// thinking model can outlast the deadline on a slow mobile connection. Any
   /// of those once meant the scan silently dropped to on-device OCR.
-  static const int _maxAttempts = 3;
-
-  /// Per attempt. The old 25 s deadline was tight enough that a slow-but-
-  /// perfectly good response looked identical to an outage.
-  static const Duration _attemptTimeout = Duration(seconds: 40);
-
-  static const List<Duration> _retryDelay = <Duration>[
-    Duration(seconds: 1),
-    Duration(seconds: 3),
-  ];
+  // OCR is also performed locally. Do not make the review screen wait through
+  // several long cloud retries when the network/model is slow.
+  static const int _maxAttempts = 1;
+  static const Duration _attemptTimeout = Duration(seconds: 18);
+  static const List<Duration> _retryDelay = <Duration>[];
 
   /// Asks Gemini to read the board. Returns `null` — never throws — whenever
   /// the caller should fall back to on-device OCR.
