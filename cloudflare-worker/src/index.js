@@ -96,9 +96,14 @@ export default {
     }
     let json;
     try { json = JSON.parse(raw); } catch (_) { return reply({ error: `Invalid ${provider} response` }, 502); }
+    const openRouterContent = json?.choices?.[0]?.message?.content;
     const result = provider === 'gemini'
       ? json?.candidates?.[0]?.content?.parts?.[0]?.text
-      : json?.choices?.[0]?.message?.content;
+      : typeof openRouterContent === 'string'
+          ? openRouterContent
+          : Array.isArray(openRouterContent)
+              ? openRouterContent.map((part) => part?.text || '').join('')
+              : '';
     if (typeof result !== 'string' || !result.trim()) return reply({ error: `Empty ${provider} response` }, 502);
     return new Response(result, { status: 200, headers: corsHeaders() });
   },
