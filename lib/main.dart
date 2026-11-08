@@ -1833,13 +1833,17 @@ class ScanFlow {
     // always cheap enough to run, and the local text also feeds the
     // "Scanned text" expander on the review screen.
     final bytes = await shot.readAsBytes();
-    final List<Object?> reads = await Future.wait<Object?>(<Future<Object?>>[
-      _readOnDevice(shot),
-      GeminiOcrService.extractJamaatTimes(bytes),
-    ]);
-
-    final OcrResult onDevice = MasjidOcrParser.parse((reads[0] as RecognizedText?)?.text ?? '');
-    final OcrResult ocr = _mergeReads(onDevice, reads[1] as GeminiOcrResult?);
+    // Run local OCR first. Its text gives the cloud model the labels and
+    // numbers it can use to correct column/order mistakes, while the image
+    // still lets the model verify the actual board visually.
+    final RecognizedText? localText = await _readOnDevice(shot);
+    final String extractedText = localText?.text ?? '';
+    final GeminiOcrResult? gemini = await GeminiOcrService.extractJamaatTimes(
+      bytes,
+      extractedText: extractedText.isEmpty ? null : extractedText,
+    );
+    final OcrResult onDevice = MasjidOcrParser.parse(extractedText);
+    final OcrResult ocr = _mergeReads(onDevice, gemini);
 
     debugPrint(
       'OCR: name=${ocr.masjidName ?? "<none>"} '

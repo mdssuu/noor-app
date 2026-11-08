@@ -39,8 +39,11 @@ export default {
     const hint = typeof body.hint === 'string' && body.hint.trim()
       ? ` The board may be labelled: ${body.hint.trim()}.`
       : '';
+    const extractedText = typeof body.extractedText === 'string' && body.extractedText.trim()
+      ? ` On-device OCR extracted this possibly noisy text; use it as a cross-check, not as truth:\n${body.extractedText.slice(0, 4000)}`
+      : '';
     const model = env.GEMINI_MODEL || 'gemini-3.8-flash';
-    const prompt = `Read the Jamaat times from this board.${hint}`;
+    const prompt = `Read the Jamaat times from this board.${hint}${extractedText}`;
     let upstream;
     let provider = 'gemini';
     if (hasGemini) {

@@ -118,6 +118,7 @@ class GeminiOcrService {
   static Future<GeminiOcrResult?> extractJamaatTimes(
     Uint8List jpeg, {
     String? hint,
+    String? extractedText,
   }) async {
     if (!dotenv.isInitialized) {
       lastFailureReason = 'the .env file is not loaded';
@@ -134,7 +135,8 @@ class GeminiOcrService {
     for (int attempt = 1; attempt <= _maxAttempts; attempt++) {
       try {
         final String raw =
-            await _generate(jpeg, hint: hint).timeout(_attemptTimeout);
+            await _generate(jpeg, hint: hint, extractedText: extractedText)
+                .timeout(_attemptTimeout);
         clock.stop();
 
         if (raw.trim().isEmpty) {
@@ -216,12 +218,21 @@ class GeminiOcrService {
   /// No `.timeout` here on purpose: the deadline belongs to the retry loop in
   /// [extractJamaatTimes], which needs to know whether a failure was slow
   /// rather than have one of the two nested timers fire first.
-  static Future<String> _generate(Uint8List jpeg, {String? hint}) async {
+  static Future<String> _generate(
+    Uint8List jpeg, {
+    String? hint,
+    String? extractedText,
+  }) async {
     final String endpoint = _read('GEMINI_PROXY_URL');
     if (endpoint.isEmpty) {
       throw GenerativeAIException('secure OCR proxy is not configured');
     }
-    return _generateViaProxy(endpoint, jpeg, hint: hint);
+    return _generateViaProxy(
+      endpoint,
+      jpeg,
+      hint: hint,
+      extractedText: extractedText,
+    );
 
     /*
     final String apiKey = _apiKey;
@@ -260,6 +271,7 @@ class GeminiOcrService {
     String endpoint,
     Uint8List jpeg, {
     String? hint,
+    String? extractedText,
   }) async {
     final http.Response response = await http.post(
       Uri.parse(endpoint),
@@ -267,6 +279,7 @@ class GeminiOcrService {
       body: jsonEncode(<String, Object?>{
         'model': _model,
         'hint': hint,
+        'extractedText': extractedText,
         'image': base64Encode(jpeg),
       }),
     );
