@@ -104,7 +104,10 @@ export default {
           : Array.isArray(openRouterContent)
               ? openRouterContent.map((part) => part?.text || '').join('')
               : '';
-    if (typeof result !== 'string' || !result.trim()) return reply({ error: `Empty ${provider} response` }, 502);
+    if (typeof result !== 'string' || !result.trim()) {
+      console.error(`${provider} empty response`, raw.slice(0, 1000));
+      return reply({ error: `Empty ${provider} response`, details: raw.slice(0, 500) }, 502);
+    }
     return new Response(result, { status: 200, headers: corsHeaders() });
   },
 };
