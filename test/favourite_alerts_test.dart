@@ -198,5 +198,41 @@ void main() {
       expect(prefs.containsKey('favmode_asr'), isFalse);
       expect(prefs.containsKey('favmode_isha'), isFalse);
     });
+
+    test('an offset stored without its mode rings at the offset it shows',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        // Written before the mode existed — no `favmode_` key at all.
+        AppSettings.scopedKeyFor('notify_fajr', 'legacy-uid'): 15,
+        // And a seeded pair: the number is positive, the mode says "at".
+        AppSettings.scopedKeyFor('notify_asr', 'legacy-uid'): 15,
+        AppSettings.scopedKeyFor('favmode_asr', 'legacy-uid'): kFavModeAt,
+        // "At time" is a real answer, not a bug to correct.
+        AppSettings.scopedKeyFor('notify_isha', 'legacy-uid'): -1,
+      });
+      final AppSettings settings = AppSettings.instance;
+
+      await settings.useProfile('legacy-uid');
+
+      expect(settings.notifyOffsetFor('fajr'), 15);
+      expect(settings.favModeFor('fajr'), kFavModeOffset,
+          reason: 'the chip reads the number, so the scheduler must too');
+      expect(settings.favModeFor('asr'), kFavModeOffset);
+      expect(settings.favModeFor('isha'), kFavModeAt,
+          reason: 'an "At time" answer stays exactly where it was');
+
+      // The correction is written back, so the next load reads it too.
+      await pumpEventQueue();
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString(AppSettings.scopedKeyFor('favmode_fajr', 'legacy-uid')),
+        kFavModeOffset,
+      );
+      expect(
+        prefs.getString(AppSettings.scopedKeyFor('favmode_isha', 'legacy-uid')),
+        isNull,
+        reason: 'nothing was written for a prayer that needed no correction',
+      );
+    });
   });
 }

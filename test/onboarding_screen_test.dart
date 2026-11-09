@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noor_masjid_time/app_look.dart';
@@ -133,5 +135,13 @@ void main() {
     expect(AppSettings.instance.onboarded, isTrue,
         reason: 'quitting must not resurrect the wizard tomorrow');
     expect(find.byType(OnboardingScreen), findsNothing);
+  });
+
+  test('the offset chips file the mode as well as the number', () {
+    final String onboarding =
+        File('lib/screens/onboarding_screen.dart').readAsStringSync();
+    expect(onboarding, contains('_settings.setFavMode('),
+        reason: 'a number without its mode rings at the prayer\'s own time '
+            'while the chip reads "15 min"');
   });
 }

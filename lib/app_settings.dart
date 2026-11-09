@@ -1155,6 +1155,16 @@ class AppSettings extends ChangeNotifier {
         // first place that answer can be given, so a blank slot reads off.
         _notifyOn[key] = prefs.getBool(_key('notifyon_$key')) ?? true;
         _favModes[key] = prefs.getString(_key('favmode_$key')) ?? kFavModeAt;
+        // An offset filed without its mode — written before the mode
+        // existed, or by a path that only knew the number — rings at the
+        // prayer's own time while every chip beside it reads "15 min".
+        // The chips are the reader's answer, so the mode follows them,
+        // once, and is written back so the next load reads it too.
+        if ((_notifyOffsets[key] ?? -1) > 0 &&
+            _favModes[key] != kFavModeOffset) {
+          _favModes[key] = kFavModeOffset;
+          await prefs.setString(_key('favmode_$key'), kFavModeOffset);
+        }
         // A stored mode only counts if it is one of the three; anything
         // else — stale, or a profile being left behind — clears the slot
         // so [bellModeFor] derives again instead of trusting garbage.
@@ -1525,7 +1535,11 @@ class AppSettings extends ChangeNotifier {
       // offsets are ready and waiting; the ringing itself is the reader's
       // to ask for, in the bell dialog or in Settings.
       _notifyOn[prayer] = false;
-      _favModes[prayer] = kFavModeAt;
+      // And the mode agrees with the number beside it: the chips select
+      // off the offset, so a seeded "10 min" has to mean ten minutes to
+      // the scheduler too rather than ring at the prayer's own time.
+      _favModes[prayer] =
+          defaults.minutesBefore > 0 ? kFavModeOffset : kFavModeAt;
     }
 
     notifyListeners();

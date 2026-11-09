@@ -680,6 +680,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         // rows live in Settings for anyone who wants them.
                         for (final String key in kNotifiablePrayers) {
                           _settings.setNotifyOffset(key, minutes);
+                          // The number is only half the answer: the
+                          // scheduler honours an offset whose mode says
+                          // so, or the chip reads "15 min" while the Azaan
+                          // rings at the prayer's own time.
+                          _settings.setFavMode(
+                              key, minutes < 0 ? kFavModeAt : kFavModeOffset);
                         }
                         setState(() {});
                       },
