@@ -274,6 +274,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (config.wallpaperUrl.isNotEmpty) 'Wallpaper',
       if (config.logoUrl.isNotEmpty) 'Logo',
       if (config.announcement.isNotEmpty) 'Notice',
+      if (config.latestVersion.isNotEmpty)
+        'Update ${config.latestVersion}',
       if (config.iconVariant != 0) kLauncherIconLabels[config.iconVariant],
       if (config.azanUrls.isNotEmpty)
         '${config.azanUrls.length} custom Azaan clip'

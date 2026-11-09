@@ -52,6 +52,7 @@ class _AdminConfigScreenState extends State<AdminConfigScreen> {
   late final TextEditingController _wallpaper;
   late final TextEditingController _logo;
   late final TextEditingController _announcement;
+  late final TextEditingController _latestVersion;
   final Map<String, TextEditingController> _clipControllers =
       <String, TextEditingController>{};
 
@@ -71,6 +72,7 @@ class _AdminConfigScreenState extends State<AdminConfigScreen> {
     _wallpaper = TextEditingController();
     _logo = TextEditingController();
     _announcement = TextEditingController();
+    _latestVersion = TextEditingController();
     for (final AzanSound sound in _clippable) {
       _clipControllers[sound.key] = TextEditingController();
     }
@@ -84,6 +86,7 @@ class _AdminConfigScreenState extends State<AdminConfigScreen> {
     _wallpaper.dispose();
     _logo.dispose();
     _announcement.dispose();
+    _latestVersion.dispose();
     for (final TextEditingController c in _clipControllers.values) {
       c.dispose();
     }
@@ -102,6 +105,7 @@ class _AdminConfigScreenState extends State<AdminConfigScreen> {
     _wallpaper.text = data.wallpaperUrl;
     _logo.text = data.logoUrl;
     _announcement.text = data.announcement;
+    _latestVersion.text = data.latestVersion;
     for (final AzanSound sound in _clippable) {
       _clipControllers[sound.key]!.text = data.azanUrls[sound.key] ?? '';
     }
@@ -134,6 +138,7 @@ class _AdminConfigScreenState extends State<AdminConfigScreen> {
       wallpaperUrl: _cleanUrl(_wallpaper.text),
       logoUrl: _cleanUrl(_logo.text),
       announcement: _announcement.text.trim(),
+      latestVersion: _latestVersion.text.trim(),
       azanUrls: clips,
     );
   }
@@ -539,6 +544,19 @@ class _AdminConfigScreenState extends State<AdminConfigScreen> {
                   ),
                   _hint('Shown until the reader dismisses it; a new sentence '
                       'brings it back. Empty means nothing is announced.'),
+
+                  const SizedBox(height: 16),
+                  adminLabel('Newest version (for the update card)'),
+                  _urlField(
+                    controller: _latestVersion,
+                    hint: 'e.g. 1.6.5',
+                    broken: false,
+                    maxLength: 32,
+                  ),
+                  _hint('Home shows an "update available" card while the '
+                      'phone runs something older — dotted numbers only, '
+                      'and anything else reads as no card at all. Empty '
+                      'means no update is announced.'),
 
                   const SizedBox(height: 16),
                   adminLabel('Launcher icon'),

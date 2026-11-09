@@ -43,6 +43,7 @@ class AppConfigData {
     this.announcement = '',
     this.iconVariant = 0,
     this.azanUrls = const <String, String>{},
+    this.latestVersion = '',
   });
 
   /// Reads the Firestore document — tolerantly.
@@ -78,6 +79,7 @@ class AppConfigData {
       announcement: _asText(branding?['announcement'], max: 400),
       iconVariant: _asVariant(branding?['iconVariant']),
       azanUrls: clips,
+      latestVersion: _asVersion(raw['latestVersion']),
     );
   }
 
@@ -93,6 +95,7 @@ class AppConfigData {
           'iconVariant': iconVariant,
         },
         'azanUrls': <String, Object?>{...azanUrls},
+        'latestVersion': latestVersion,
       };
 
   /// The defaults a brand-new profile opens on.
@@ -117,6 +120,12 @@ class AppConfigData {
   /// an empty map means "every Azaan plays what shipped with the app".
   final Map<String, String> azanUrls;
 
+  /// The newest release the owner knows about, as a dotted version —
+  /// `1.6.5` — or `''` for "don't tell anyone to update". Read only when
+  /// it is a version [isVersionNewer] can order, so a typo in the panel
+  /// can never put an update card on every phone.
+  final String latestVersion;
+
   AppConfigData copyWith({
     NewUserDefaults? defaults,
     String? wallpaperUrl,
@@ -124,6 +133,7 @@ class AppConfigData {
     String? announcement,
     int? iconVariant,
     Map<String, String>? azanUrls,
+    String? latestVersion,
   }) =>
       AppConfigData(
         defaults: defaults ?? this.defaults,
@@ -132,6 +142,7 @@ class AppConfigData {
         announcement: announcement ?? this.announcement,
         iconVariant: iconVariant ?? this.iconVariant,
         azanUrls: azanUrls ?? this.azanUrls,
+        latestVersion: latestVersion ?? this.latestVersion,
       );
 
   static Map<String, dynamic>? _asMap(Object? value) => value is Map
@@ -162,6 +173,19 @@ class AppConfigData {
       ? value.toInt().clamp(0, kLauncherIconLabels.length - 1).toInt()
       : 0;
 
+  /// A version the comparison can actually order: dotted numbers with an
+  /// optional leading `v`. Anything else reads as "unset", so a typo in
+  /// the panel never sends every phone chasing a version that does not
+  /// exist.
+  static String _asVersion(Object? value) {
+    if (value is! String) return '';
+    final String text = value.trim();
+    final String bare =
+        text.toLowerCase().startsWith('v') ? text.substring(1) : text;
+    if (bare.isEmpty || bare.length > 32) return '';
+    return RegExp(r'^\d+(\.\d+)*$').hasMatch(bare) ? bare : '';
+  }
+
   @override
   bool operator ==(Object other) =>
       other is AppConfigData &&
@@ -170,6 +194,7 @@ class AppConfigData {
       other.logoUrl == logoUrl &&
       other.announcement == announcement &&
       other.iconVariant == iconVariant &&
+      other.latestVersion == latestVersion &&
       _sameClips(other.azanUrls, azanUrls);
 
   @override
@@ -186,6 +211,7 @@ class AppConfigData {
       logoUrl,
       announcement,
       iconVariant,
+      latestVersion,
       Object.hashAll(entries
           .map((MapEntry<String, String> e) => '${e.key}=${e.value}')),
     );
@@ -194,6 +220,43 @@ class AppConfigData {
   static bool _sameClips(Map<String, String> a, Map<String, String> b) =>
       a.length == b.length &&
       a.entries.every((MapEntry<String, String> e) => b[e.key] == e.value);
+}
+
+/// Whether [latest] names a release newer than [installed].
+///
+/// Dotted numbers compared part by part, so `1.10.0` is ahead of `1.9.9`
+/// — text order would say otherwise — and a missing part reads as zero,
+/// so `1.7` is ahead of `1.6.4`. Anything that is not dotted numbers
+/// answers "no": a typo in the panel must not put an update card on
+/// every phone, and neither must a version the owner has already shipped.
+bool isVersionNewer(String latest, String installed) {
+  final List<int> want = _versionParts(latest);
+  final List<int> have = _versionParts(installed);
+  if (want.isEmpty || have.isEmpty) return false;
+  final int length =
+      want.length > have.length ? want.length : have.length;
+  for (int i = 0; i < length; i++) {
+    final int a = i < want.length ? want[i] : 0;
+    final int b = i < have.length ? have[i] : 0;
+    if (a != b) return a > b;
+  }
+  return false;
+}
+
+/// The numeric parts of a dotted version, or nothing at all when the
+/// string is not one — the empty list is what [isVersionNewer] reads as
+/// "cannot say", and so refuses to nudge.
+List<int> _versionParts(String version) {
+  String text = version.trim();
+  if (text.toLowerCase().startsWith('v')) text = text.substring(1);
+  if (text.isEmpty || text.length > 32) return const <int>[];
+  final List<int> parts = <int>[];
+  for (final String piece in text.split('.')) {
+    final int? part = int.tryParse(piece);
+    if (part == null || part < 0) return const <int>[];
+    parts.add(part);
+  }
+  return parts;
 }
 
 /// The owner's control document: one Firestore doc, one screen, no rebuilds.
@@ -353,12 +416,13 @@ class AppConfig extends ChangeNotifier {
         // A field mask, not a bare merge: a nested map under merge semantics
         // is merged key by key, so clearing a URL the owner has emptied would
         // leave the old one behind. A mask replaces each named field outright,
-        // which is the meaning of "I have cleared this". Only these four are
+        // which is the meaning of "I have cleared this". Only these are
         // named, so anything else the document may carry is left alone.
         SetOptions(mergeFields: <String>[
           'defaults',
           'branding',
           'azanUrls',
+          'latestVersion',
           'updatedAt',
         ]),
       );

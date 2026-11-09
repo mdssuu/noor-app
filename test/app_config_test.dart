@@ -325,4 +325,56 @@ void main() {
       expect(prefs.getString('timeFormat::uid-persist'), '24');
     });
   });
+
+  group('the update card’s version', () {
+    test('is read only when it is a version comparison can order', () {
+      expect(
+        AppConfigData.fromMap(<String, dynamic>{'latestVersion': ' 1.6.5 '})
+            .latestVersion,
+        '1.6.5',
+      );
+      expect(
+        AppConfigData.fromMap(<String, dynamic>{'latestVersion': 'v1.7.0'})
+            .latestVersion,
+        '1.7.0',
+        reason: 'an owner may type the v everyone else writes',
+      );
+      expect(
+        AppConfigData.fromMap(<String, dynamic>{'latestVersion': 'soon'})
+            .latestVersion,
+        '',
+        reason: 'junk must not put an update card on every phone',
+      );
+      expect(
+        AppConfigData.fromMap(<String, dynamic>{'latestVersion': 42})
+            .latestVersion,
+        '',
+      );
+    });
+
+    test('round-trips through toMap without losing anything', () {
+      const AppConfigData original = AppConfigData(latestVersion: '1.6.5');
+      expect(AppConfigData.fromMap(original.toMap()), original);
+      expect(
+        AppConfigData.fromMap(const AppConfigData().toMap()).latestVersion,
+        '',
+        reason: 'a config that never mentioned a version still reads back',
+      );
+    });
+
+    test('an update is only newer when it actually is ahead', () {
+      expect(isVersionNewer('1.6.5', '1.6.4'), isTrue);
+      expect(isVersionNewer('1.6.5', '1.6.5'), isFalse);
+      expect(isVersionNewer('1.6.4', '1.6.5'), isFalse);
+      expect(isVersionNewer('1.10.0', '1.9.9'), isTrue,
+          reason: 'numbers compare as numbers, not as text');
+      expect(isVersionNewer('1.7', '1.6.4'), isTrue,
+          reason: 'a missing part reads as zero');
+      expect(isVersionNewer('1.6.4.0', '1.6.4'), isFalse);
+      expect(isVersionNewer('soon', '1.6.4'), isFalse,
+          reason: 'junk never nags');
+      expect(isVersionNewer('', '1.6.4'), isFalse);
+      expect(isVersionNewer('1.6.5', ''), isFalse);
+    });
+  });
 }

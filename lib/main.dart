@@ -43,10 +43,12 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_settings.dart';
 import 'app_look.dart';
@@ -4321,6 +4323,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// back — while a *new* notice from the owner does appear.
   String _dismissedAnnouncement = '';
 
+  /// The update card last dismissed — keyed by the version it offered, so
+  /// a *newer* release's card comes back while the old one stays closed.
+  String _dismissedUpdateVersion = '';
+
+  /// Home rebuilds every second for the countdown, so the installed
+  /// version is asked for once and the answer kept.
+  Future<PackageInfo>? _packageInfo;
+
   /// Whether the revoked exact-alarm permission has been reported this run.
   bool _warnedExactAlarmLost = false;
 
@@ -5754,6 +5764,97 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// The "a newer version is out" card, at the top of Home — shown only
+  /// when the owner has named a release ahead of the one running.
+  ///
+  /// Empty [AppConfigData.latestVersion] draws nothing at all: no card,
+  /// no gap above the countdown, exactly like the notice above. Dismissing
+  /// hides *that version's* card; the day the owner names a newer one it
+  /// comes back, which is what keeps the close button from muting updates
+  /// for good. The APK behind the button is the same one About offers, so
+  /// the two doors can never disagree about where an update comes from.
+  Widget _updateBanner() {
+    final String latest = AppConfig.instance.data.latestVersion.trim();
+    if (latest.isEmpty || latest == _dismissedUpdateVersion) {
+      return const SizedBox.shrink();
+    }
+    return FutureBuilder<PackageInfo>(
+      // Asked once: the countdown rebuilds Home every second, and a fresh
+      // platform-channel call on every pass would be pure waste.
+      future: _packageInfo ??= PackageInfo.fromPlatform(),
+      builder: (BuildContext context, AsyncSnapshot<PackageInfo> snap) {
+        final String installed = snap.data?.version ?? '';
+        // While the version is still unknown — and whenever the owner's
+        // number is not actually ahead — there is nothing to say.
+        if (installed.isEmpty || !isVersionNewer(latest, installed)) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: GoldCard(
+            padding: const EdgeInsets.fromLTRB(14, 12, 4, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Icon(Icons.system_update_outlined,
+                        size: 20, color: NoorColors.gold),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Text(
+                        'Version $latest is available — you have '
+                        '$installed. Update to get the latest times, '
+                        'sounds and fixes.',
+                        style: GoogleFonts.outfit(
+                          fontSize: 12.5,
+                          color: NoorColors.onGlass,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Dismiss',
+                      icon: const Icon(Icons.close, size: 17),
+                      color: NoorColors.onGlassMuted,
+                      onPressed: () =>
+                          setState(() => _dismissedUpdateVersion = latest),
+                    ),
+                  ],
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _openUpdateLink,
+                    icon: const Icon(Icons.download_outlined, size: 17),
+                    label: const Text('Update now'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: NoorColors.gold,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Hands the update card's button the same APK the About page offers.
+  Future<void> _openUpdateLink() async {
+    try {
+      await launchUrl(
+        Uri.parse(AboutScreen.downloadUrl),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (error) {
+      debugPrint('Noor ▸ could not open the update link: $error');
+    }
+  }
+
   /// One tap from the hero's row: each tool opens full-screen and comes
   /// back, which is why none of them needs a tab of its own.
   void _openTool(Widget screen) {
@@ -5778,6 +5879,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 2, 16, 20),
           children: <Widget>[
+            _updateBanner(),
             _announcement(),
 
             // For the whole of Ramadan — and for no other day of the year:
