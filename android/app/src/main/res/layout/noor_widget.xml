@@ -119,12 +119,18 @@
         android:textColor="#8B8076"
         android:textSize="10sp" />
 
-    <View
+    <!-- A hairline, not a view: RemoteViews inflates only classes carrying
+         the @RemoteView annotation, and neither android.view.View nor
+         android.widget.Space has one — the launcher turns that rejection
+         into "Problem loading widget". A zero-text TextView is annotated,
+         so the 1dp rule survives the swap. -->
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="5dp"
         android:layout_marginBottom="4dp"
-        android:background="#1A3A2E22" />
+        android:background="#1A3A2E22"
+        android:text="" />
 
     <!-- The five prayers, one block each: name and clock on the first
          line, the day's reading for that prayer beneath it. Index order

@@ -82,8 +82,33 @@ void main() {
     }
   });
 
-  test('the widget is registered and told how much room it wants', () {
-    final String manifest =
+  test('every view in the widget layout is one RemoteViews may inflate', () {
+    // RemoteViews inflates through a LayoutInflater filter that rejects any
+    // class without the @RemoteView annotation — and the launcher turns that
+    // rejection into "Problem loading widget". android.view.View and
+    // android.widget.Space both lack the annotation; this pin keeps the
+    // layout inside the allow-list (LinearLayout, TextView, ImageView are
+    // annotated) so a future divider or spacer cannot break every placed
+    // widget at once.
+    final String xml =
+        File('android/app/src/main/res/layout/noor_widget.xml')
+            .readAsStringSync();
+
+    final RegExp tag = RegExp(r'<([A-Za-z]+)[\s/>]');
+    final Set<String> used =
+        tag.allMatches(xml).map((Match m) => m.group(1)!).toSet();
+    const Set<String> allowed = <String>{
+      'LinearLayout',
+      'TextView',
+      'ImageView',
+    };
+    expect(used.difference(allowed), isEmpty,
+        reason: 'these tags are not @RemoteView-annotated, so inflation '
+            'fails and the launcher shows an error card: '
+            '${used.difference(allowed)}');
+  });
+
+  test('the widget is registered and told how much room it wants', () {    final String manifest =
         File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
     expect(manifest, contains('.NoorWidgetProvider'),
         reason: 'an unregistered receiver means the launcher never finds '

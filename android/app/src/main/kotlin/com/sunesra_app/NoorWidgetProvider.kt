@@ -63,11 +63,31 @@ class NoorWidgetProvider : AppWidgetProvider() {
                 updateAll(context)
                 LockScreenNotifier.refresh(context)
             }
+
+            // Self-test for the "Problem loading widget" report: inflates
+            // this widget's own layout right here, in this process — the
+            // same inflation a launcher performs — so `adb shell am broadcast`
+            // can prove or clear the layout without a widget being placed.
+            // Any failure lands in logcat as `Noor/Widget` with a stack trace.
+            ACTION_INFLATE_SELF -> {
+                try {
+                    val views = render(context)
+                        ?: throw IllegalStateException("render returned null")
+                    views.apply(context, null)
+                    android.util.Log.i(TAG, "inflate self-test: OK")
+                } catch (t: Throwable) {
+                    android.util.Log.e(TAG, "inflate self-test: FAILED", t)
+                }
+            }
         }
     }
 
     companion object {
         private const val TAG = "Noor/Widget"
+
+        /** Broadcast action that runs the layout inflate self-test above. */
+        private const val ACTION_INFLATE_SELF =
+            "com.sunesra_app.action.INFLATE_SELF"
 
         // Shared with LockScreenNotifier: the lock-screen card reads the
         // same store, so one picture Dart prepares feeds both surfaces and
