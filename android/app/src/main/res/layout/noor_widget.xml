@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The home-screen widget: app mark and date, the place and its Hijri
-     day, the one prayer that is next, and the whole day's times in two
-     columns under it. Every text id here is named by NoorWidgetProvider.kt,
-     which fills them from the picture Dart prepared. -->
+     day, the one prayer that is next, and — under each of the five
+     prayers — its time and the day's reading for it. Every text id here
+     is named by NoorWidgetProvider.kt, which fills them from the picture
+     Dart prepared.
+
+     Two quote TextViews per prayer rather than one: RemoteViews cannot
+     change a typeface at draw time, so the Nastaliq face and the plain
+     one both exist in the layout and the provider shows exactly one of
+     them, according to the reading language the reader chose in the app.
+     (Nastaliq on Latin text would be a crime against both scripts.)
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:background="@drawable/widget_bg"
     android:clickable="true"
     android:focusable="true"
@@ -98,6 +106,19 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- The whole widget before the first picture has ever arrived: a
+         header over nothing reads as a broken widget, so the empty state
+         says what to do about it instead. The provider hides this line
+         the moment a payload exists. -->
+    <TextView
+        android:id="@+id/widget_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="Open Noor once to load today&#8217;s prayer times"
+        android:textColor="#8B8076"
+        android:textSize="10sp" />
+
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
@@ -105,81 +126,316 @@
         android:layout_marginBottom="4dp"
         android:background="#1A3A2E22" />
 
+    <!-- The five prayers, one block each: name and clock on the first
+         line, the day's reading for that prayer beneath it. Index order
+         is Fajr, Dhuhr, Asr, Maghrib, Isha — the order the provider
+         fills them in. -->
     <LinearLayout
+        android:id="@+id/widget_block_0"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_p0_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_p0_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/widget_time_0"
-            android:layout_width="0dp"
+            android:id="@+id/widget_p0_quote"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
+            android:ellipsize="end"
+            android:maxLines="2"
             android:text=""
-            android:textColor="#40352C"
-            android:textSize="10sp" />
+            android:textColor="#8B8076"
+            android:textSize="9sp" />
 
         <TextView
-            android:id="@+id/widget_time_1"
-            android:layout_width="0dp"
+            android:id="@+id/widget_p0_quote_urdu"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
+            android:ellipsize="end"
+            android:fontFamily="@font/noto_nastaliq_urdu"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="2"
             android:text=""
-            android:textColor="#40352C"
-            android:textSize="10sp" />
+            android:textColor="#8B8076"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Sunrise: the light coming up, not a prayer — it gets no reading
+         and no block of its own, just one slim line between Fajr and
+         Dhuhr where it falls in the day. -->
+    <TextView
+        android:id="@+id/widget_sunrise"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="2dp"
+        android:maxLines="1"
+        android:text=""
+        android:textColor="#8B8076"
+        android:textSize="9sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/widget_block_1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_p1_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_p1_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_p1_quote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text=""
+            android:textColor="#8B8076"
+            android:textSize="9sp" />
+
+        <TextView
+            android:id="@+id/widget_p1_quote_urdu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="@font/noto_nastaliq_urdu"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="2"
+            android:text=""
+            android:textColor="#8B8076"
+            android:textSize="10sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/widget_block_2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_marginTop="4dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_p2_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_p2_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/widget_time_2"
-            android:layout_width="0dp"
+            android:id="@+id/widget_p2_quote"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
+            android:ellipsize="end"
+            android:maxLines="2"
             android:text=""
-            android:textColor="#40352C"
-            android:textSize="10sp" />
+            android:textColor="#8B8076"
+            android:textSize="9sp" />
 
         <TextView
-            android:id="@+id/widget_time_3"
-            android:layout_width="0dp"
+            android:id="@+id/widget_p2_quote_urdu"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
+            android:ellipsize="end"
+            android:fontFamily="@font/noto_nastaliq_urdu"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="2"
             android:text=""
-            android:textColor="#40352C"
-            android:textSize="10sp" />
+            android:textColor="#8B8076"
+            android:textSize="10sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/widget_block_3"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_marginTop="4dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_p3_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_p3_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/widget_time_4"
-            android:layout_width="0dp"
+            android:id="@+id/widget_p3_quote"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
+            android:ellipsize="end"
+            android:maxLines="2"
             android:text=""
-            android:textColor="#40352C"
-            android:textSize="10sp" />
+            android:textColor="#8B8076"
+            android:textSize="9sp" />
 
         <TextView
-            android:id="@+id/widget_time_5"
-            android:layout_width="0dp"
+            android:id="@+id/widget_p3_quote_urdu"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
+            android:ellipsize="end"
+            android:fontFamily="@font/noto_nastaliq_urdu"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="2"
             android:text=""
-            android:textColor="#40352C"
-            android:textSize="10sp" />
+            android:textColor="#8B8076"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_block_4"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_p4_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_p4_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#40352C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_p4_quote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text=""
+            android:textColor="#8B8076"
+            android:textSize="9sp" />
+
+        <TextView
+            android:id="@+id/widget_p4_quote_urdu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="@font/noto_nastaliq_urdu"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="2"
+            android:text=""
+            android:textColor="#8B8076"
+            android:textSize="10sp"
+            android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

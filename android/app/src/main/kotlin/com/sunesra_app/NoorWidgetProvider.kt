@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,8 +26,14 @@ import org.json.JSONObject
  * an `updatePeriodMillis` redraw re-reads the stored table and advances the
  * "next prayer" line on its own for a day or two, instead of freezing on
  * whatever was next at the last app open. When the table runs out (or no
- * picture was ever sent), the widget still renders — with the day's times,
- * which do not expire until tomorrow's picture arrives.
+ * picture was ever sent), the widget still renders — with a hint line that
+ * says to open the app, rather than a header over nothing.
+ *
+ * Each of the five prayers draws with the day's reading for it beneath its
+ * time — the same pool the in-app reading cards show, already translated
+ * by Dart into the reader's chosen language. The layout carries two faces
+ * per reading (Nastaliq and plain) because RemoteViews cannot switch a
+ * typeface at draw time; [render] shows exactly one of them.
  */
 class NoorWidgetProvider : AppWidgetProvider() {
 
@@ -68,15 +75,28 @@ class NoorWidgetProvider : AppWidgetProvider() {
         internal const val PREFS = "noor_widget"
         internal const val KEY_PAYLOAD = "payload_json"
 
-        /** Rows of prayer times the layout can hold: 3 rows x 2 columns. */
-        private val TIME_VIEWS =
-            intArrayOf(R.id.widget_time_0, R.id.widget_time_1, R.id.widget_time_2,
-                R.id.widget_time_3, R.id.widget_time_4, R.id.widget_time_5)
+        /** The five prayers, in the order the blocks are drawn. */
+        private val PRAYER_KEYS =
+            arrayOf("fajr", "dhuhr", "asr", "maghrib", "isha")
 
-        /**
-         * Stores the picture Dart prepared and redraws every widget from it.
-         * Called from [MainActivity]'s method-channel handler.
-         */
+        /** The name, clock, reading and block of each prayer, index-aligned. */
+        private val NAME_VIEWS =
+            intArrayOf(R.id.widget_p0_name, R.id.widget_p1_name,
+                R.id.widget_p2_name, R.id.widget_p3_name, R.id.widget_p4_name)
+        private val TIME_VIEWS =
+            intArrayOf(R.id.widget_p0_time, R.id.widget_p1_time,
+                R.id.widget_p2_time, R.id.widget_p3_time, R.id.widget_p4_time)
+        private val QUOTE_VIEWS =
+            intArrayOf(R.id.widget_p0_quote, R.id.widget_p1_quote,
+                R.id.widget_p2_quote, R.id.widget_p3_quote, R.id.widget_p4_quote)
+        private val QUOTE_URDU_VIEWS =
+            intArrayOf(R.id.widget_p0_quote_urdu, R.id.widget_p1_quote_urdu,
+                R.id.widget_p2_quote_urdu, R.id.widget_p3_quote_urdu,
+                R.id.widget_p4_quote_urdu)
+        private val BLOCK_VIEWS =
+            intArrayOf(R.id.widget_block_0, R.id.widget_block_1,
+                R.id.widget_block_2, R.id.widget_block_3, R.id.widget_block_4)
+
         /**
          * Empties the widget.
          *
@@ -88,6 +108,10 @@ class NoorWidgetProvider : AppWidgetProvider() {
             updateAll(context)
         }
 
+        /**
+         * Stores the picture Dart prepared and redraws every widget from it.
+         * Called from [MainActivity]'s method-channel handler.
+         */
         fun push(context: Context, payloadJson: String) {
             prefs(context).edit().putString(KEY_PAYLOAD, payloadJson).apply()
             updateAll(context)
@@ -117,36 +141,55 @@ class NoorWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.noor_widget)
 
             // Sensible blanks first: a widget placed before the app has ever
-            // opened still looks deliberate rather than empty.
+            // opened still looks deliberate rather than empty — and the hint
+            // line under the header says what to do about it.
             var city = "Prayer times"
             var hijri = ""
             var dateLabel = ""
             var nextLabel = "Next"
             var nextTime = "—"
-            val times = mutableListOf<String>()
+            var noPayload = true
+            // The app's default reading language: only an old payload that
+            // predates the field could be silent, and Urdu is what it means.
+            var urdu = true
+            var tomorrow = false
+            val byKey = mutableMapOf<String, JSONObject>()
 
             val raw = prefs(context).getString(KEY_PAYLOAD, null)
             if (raw != null) {
                 try {
                     val json = JSONObject(raw)
+                    noPayload = false
+
+                    val now = System.currentTimeMillis()
+                    // Past the prepared day's local midnight every row has a
+                    // `tomorrowTime` / `tomorrowQuote` twin waiting, and the
+                    // date and Hijri headers have theirs — the phone's clock
+                    // alone decides which half of the picture is true now.
+                    val dayEndMs = json.optLong("dayEndMs", 0L)
+                    tomorrow = dayEndMs > 0L && now >= dayEndMs
+                    urdu = json.optString("readingLang", "urdu") == "urdu"
+
                     city = json.optString("city").ifBlank { "Prayer times" }
-                    hijri = json.optString("hijri")
-                    dateLabel = json.optString("dateLabel")
+                    hijri = (if (tomorrow) json.optString("hijriTomorrow") else "")
+                        .ifBlank { json.optString("hijri") }
+                    dateLabel = (if (tomorrow) json.optString("dateLabelTomorrow") else "")
+                        .ifBlank { json.optString("dateLabel") }
 
                     val prayers = json.optJSONArray("prayers") ?: JSONArray()
                     for (i in 0 until prayers.length()) {
                         val p = prayers.optJSONObject(i) ?: continue
-                        val label = p.optString("label")
-                        val time = p.optString("time")
-                        if (label.isNotEmpty() && time.isNotEmpty()) {
-                            times.add("$label  $time")
-                        }
+                        // `key` is what the rows are found by; the lowercased
+                        // label stands in for a picture stored by an older
+                        // build, which carried labels and nothing else.
+                        val key = p.optString("key")
+                            .ifBlank { p.optString("label").lowercase() }
+                        if (key.isNotEmpty()) byKey[key] = p
                     }
 
                     // The first table entry still ahead of the phone's clock
                     // is today's next prayer; past the whole table, the last
                     // entry stands in until the next app-open refreshes it.
-                    val now = System.currentTimeMillis()
                     val transitions = json.optJSONArray("transitions") ?: JSONArray()
                     var chosen: JSONObject? = null
                     for (i in 0 until transitions.length()) {
@@ -163,6 +206,7 @@ class NoorWidgetProvider : AppWidgetProvider() {
                     }
                 } catch (t: Throwable) {
                     android.util.Log.w(TAG, "payload unreadable, rendering blanks: $t")
+                    noPayload = true
                 }
             }
 
@@ -177,11 +221,60 @@ class NoorWidgetProvider : AppWidgetProvider() {
             )
             views.setTextViewText(R.id.widget_next_label, nextLabel)
             views.setTextViewText(R.id.widget_next_time, nextTime)
+            views.setViewVisibility(
+                R.id.widget_hint,
+                if (noPayload) View.VISIBLE else View.GONE,
+            )
 
-            for (i in TIME_VIEWS.indices) {
-                val text = if (i < times.size) times[i] else ""
-                views.setTextViewText(TIME_VIEWS[i], text)
+            // Each block: name and clock on the first line, the day's reading
+            // for that prayer under it — in exactly one of the two faces, the
+            // Nastaliq one or the plain one, matching the language the reader
+            // chose in the app. A picture without readings (stored before the
+            // widget learned them) simply leaves the second line out.
+            for (i in PRAYER_KEYS.indices) {
+                val p = byKey[PRAYER_KEYS[i]]
+                val name = p?.optString("label").orEmpty()
+                val time = pick(p, tomorrow, "time")
+                val quote = pick(p, tomorrow, "quote")
+                val source = pick(p, tomorrow, "source")
+
+                views.setTextViewText(NAME_VIEWS[i], name)
+                views.setTextViewText(TIME_VIEWS[i], time)
+                val line = when {
+                    quote.isEmpty() -> ""
+                    source.isEmpty() -> quote
+                    // Source first: whatever the ellipsis cuts, it never cuts
+                    // away whose words these are.
+                    else -> "$source — $quote"
+                }
+                views.setTextViewText(QUOTE_VIEWS[i], line)
+                views.setTextViewText(QUOTE_URDU_VIEWS[i], line)
+                val showQuote = line.isNotEmpty()
+                views.setViewVisibility(
+                    QUOTE_VIEWS[i],
+                    if (showQuote && !urdu) View.VISIBLE else View.GONE,
+                )
+                views.setViewVisibility(
+                    QUOTE_URDU_VIEWS[i],
+                    if (showQuote && urdu) View.VISIBLE else View.GONE,
+                )
+                views.setViewVisibility(
+                    BLOCK_VIEWS[i],
+                    if (name.isEmpty() && time.isEmpty()) View.GONE else View.VISIBLE,
+                )
             }
+
+            // Sunrise falls between Fajr and Dhuhr in the day and gets the one
+            // slim line there — no reading, because it is not a prayer.
+            val rise = byKey["sunrise"]
+            val riseTime = pick(rise, tomorrow, "time")
+            val riseLabel = rise?.optString("label").orEmpty().ifBlank { "Sunrise" }
+            val riseText = if (riseTime.isEmpty()) "" else "$riseLabel  $riseTime"
+            views.setTextViewText(R.id.widget_sunrise, riseText)
+            views.setViewVisibility(
+                R.id.widget_sunrise,
+                if (riseText.isEmpty()) View.GONE else View.VISIBLE,
+            )
 
             // Tap anywhere on it: the enabled launcher component, so the tap
             // lands on whichever icon variant the owner has switched to.
@@ -198,6 +291,27 @@ class NoorWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_root, tap)
 
             return views
+        }
+
+        /**
+         * One field of a prayer's entry, for whichever half of the picture
+         * the clock says is true — with tomorrow's copy falling back to
+         * today's when the picture predates it, so an old payload keeps
+         * rendering instead of reading as empty.
+         *
+         * `internal` because the lock-screen card reads the same picture and
+         * must pick by the same rule, or the two surfaces would disagree
+         * about every clock after midnight.
+         */
+        internal fun pick(p: JSONObject?, tomorrow: Boolean, field: String): String {
+            if (p == null) return ""
+            if (tomorrow) {
+                val next = p.optString(
+                    "tomorrow" + field.replaceFirstChar { it.uppercaseChar() },
+                )
+                if (next.isNotEmpty()) return next
+            }
+            return p.optString(field)
         }
     }
 }

@@ -94,11 +94,16 @@ object LockScreenNotifier {
             val json = JSONObject(raw)
 
             val dayLines = mutableListOf<String>()
+            // The same half of the picture the home widget draws: past the
+            // prepared day's midnight the card reads tomorrow's clocks, or
+            // the two surfaces would disagree about every time all morning.
+            val dayEndMs = json.optLong("dayEndMs", 0L)
+            val tomorrow = dayEndMs > 0L && System.currentTimeMillis() >= dayEndMs
             val prayers = json.optJSONArray("prayers") ?: JSONArray()
             for (i in 0 until prayers.length()) {
                 val p = prayers.optJSONObject(i) ?: continue
                 val label = p.optString("label")
-                val time = p.optString("time")
+                val time = NoorWidgetProvider.pick(p, tomorrow, "time")
                 if (label.isNotEmpty() && time.isNotEmpty()) {
                     dayLines.add("$label  $time")
                 }

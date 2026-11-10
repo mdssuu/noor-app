@@ -7,6 +7,7 @@ import 'package:hijri/hijri_calendar.dart';
 import 'package:intl/intl.dart';
 
 import '../app_settings.dart';
+import '../prayer_readings.dart';
 import 'islamic_calendar.dart';
 
 /// What the home-screen widget is fed and when.
@@ -14,11 +15,12 @@ import 'islamic_calendar.dart';
 /// The widget cannot run Dart: an `AppWidgetProvider` is plain Kotlin, and
 /// prayer times come out of an engine that only the app process can host.
 /// So the app hands the platform side a *prepared* picture — today's times,
-/// and a table of the next few prayer instants with their wall-clock
-/// labels — and the provider picks whichever entry the phone's own clock
-/// says is next whenever it redraws. That is what keeps the widget honest
-/// for a day or two of the phone being closed, instead of freezing on
-/// whatever "next" meant at the last app open.
+/// the reading shown under each prayer today and tomorrow, and a table of
+/// the next few prayer instants with their wall-clock labels — and the
+/// provider picks whichever entry the phone's own clock says is next
+/// whenever it redraws. That is what keeps the widget honest for a day or
+/// two of the phone being closed, instead of freezing on whatever "next"
+/// meant at the last app open.
 class PrayerWidget {
   PrayerWidget._();
 
@@ -43,30 +45,35 @@ class PrayerWidget {
   }) {
     final AppSettings settings = AppSettings.instance;
     final DateTime today = now ?? DateTime.now();
+    final DateTime preparedDay =
+        DateTime(today.year, today.month, today.day);
 
     final List<Map<String, Object?>> transitions = <Map<String, Object?>>[];
-    final List<Map<String, Object?>> prayers = <Map<String, Object?>>[];
+    final Map<String, Map<String, Object?>> todayPrayers =
+        <String, Map<String, Object?>>{};
+    final Map<String, Map<String, Object?>> tomorrowPrayers =
+        <String, Map<String, Object?>>{};
 
     for (int dayOffset = 0; dayOffset < transitionDays; dayOffset++) {
-      final DateTime day = DateTime(today.year, today.month, today.day)
-          .add(Duration(days: dayOffset));
+      final DateTime day = preparedDay.add(Duration(days: dayOffset));
       final LocalPrayerTimes times = settings.compute(
         latitude: latitude,
         longitude: longitude,
         day: day,
       );
+      final Map<String, Map<String, Object?>> into =
+          dayOffset == 0 ? todayPrayers : tomorrowPrayers;
 
-      if (dayOffset == 0) {
-        for (final String key in <String>[
-          'fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha',
-        ]) {
-          final DateTime? at = times.times[key];
-          if (at == null) continue;
-          prayers.add(<String, Object?>{
-            'label': _labelFor(key),
-            'time': settings.format(at),
-          });
-        }
+      for (final String key in <String>[
+        'fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha',
+      ]) {
+        final DateTime? at = times.times[key];
+        if (at == null) continue;
+        into[key] = <String, Object?>{
+          'key': key,
+          'label': _labelFor(key),
+          'time': settings.format(at),
+        };
       }
 
       for (final String key in <String>['fajr', 'dhuhr', 'asr', 'maghrib', 'isha']) {
@@ -80,17 +87,56 @@ class PrayerWidget {
       }
     }
 
+    // The widget and the lock card redraw from this picture with nothing
+    // but the phone's clock for a day or two, so each row carries tomorrow
+    // alongside it — the time, and the reading that will be on show after
+    // midnight — and `dayEndMs` is what tells the Kotlin side when to start
+    // using them. Sunrise has no reading: it is light, not a prayer.
+    final String readingLang = settings.readingLanguage;
+    final List<Map<String, Object?>> prayers = <Map<String, Object?>>[];
+    for (final String key in <String>[
+      'fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha',
+    ]) {
+      final Map<String, Object?>? entry = todayPrayers[key];
+      if (entry == null) continue;
+      entry['tomorrowTime'] = tomorrowPrayers[key]?['time'] ?? '';
+      if (key != 'sunrise') {
+        final DateTime tomorrow = preparedDay.add(const Duration(days: 1));
+        final PrayerReading todayReading = readingFor(key, preparedDay);
+        final PrayerReading tomorrowReading = readingFor(key, tomorrow);
+        entry['quote'] = todayReading.translationFor(readingLang);
+        entry['source'] = todayReading.source;
+        entry['tomorrowQuote'] = tomorrowReading.translationFor(readingLang);
+        entry['tomorrowSource'] = tomorrowReading.source;
+      }
+      prayers.add(entry);
+    }
+
     String hijri = '';
+    String hijriTomorrow = '';
     try {
       final HijriCalendar h =
           NoorHijri.hijriOf(today, adjustment: hijriAdjustment);
       hijri = '${h.hDay} ${h.getLongMonthName()} ${h.hYear}';
+      final HijriCalendar h2 = NoorHijri.hijriOf(
+        preparedDay.add(const Duration(days: 1)),
+        adjustment: hijriAdjustment,
+      );
+      hijriTomorrow = '${h2.hDay} ${h2.getLongMonthName()} ${h2.hYear}';
     } catch (_) {}
 
     return <String, Object?>{
       'city': areaName.trim(),
       'hijri': hijri,
-      'dateLabel': DateFormat('EEE, d MMM').format(today),
+      'dateLabel': DateFormat('EEE, d MMM').format(preparedDay),
+      'hijriTomorrow': hijriTomorrow,
+      'dateLabelTomorrow':
+          DateFormat('EEE, d MMM').format(preparedDay.add(const Duration(days: 1))),
+      'readingLang': readingLang,
+      // The local midnight that ends the prepared day: past this instant
+      // the Kotlin side switches every row to its `tomorrow*` twin.
+      'dayEndMs': preparedDay.add(const Duration(days: 1))
+          .millisecondsSinceEpoch,
       'prayers': prayers,
       'transitions': transitions,
     };

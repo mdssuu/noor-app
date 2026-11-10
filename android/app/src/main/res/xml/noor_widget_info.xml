@@ -2,15 +2,20 @@
 <!-- Metadata the launcher's widget picker reads before the widget exists.
      updatePeriodMillis is the minimum Android allows (30 min): each tick
      re-renders the stored picture with the phone's current clock, which is
-     how the "next prayer" line moves all day without Dart running. -->
+     how the "next prayer" line moves all day without Dart running.
+
+     minHeight is the whole card, not a taste in rectangles: five prayers
+     with their readings under them want about as much room, and a host
+     that grants less simply clips the last line. resizeMode is what lets
+     the reader take the room back. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_description"
     android:initialLayout="@layout/noor_widget"
     android:minWidth="250dp"
-    android:minHeight="110dp"
+    android:minHeight="270dp"
     android:previewImage="@mipmap/ic_launcher"
     android:resizeMode="horizontal|vertical"
-    android:targetCellHeight="2"
+    android:targetCellHeight="3"
     android:targetCellWidth="4"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen" />

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noor_masjid_time/app_settings.dart';
+import 'package:noor_masjid_time/prayer_readings.dart';
 import 'package:noor_masjid_time/services/prayer_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -69,6 +70,78 @@ void main() {
           (jsonDecode(wire) as Map).cast<String, Object?>();
       expect(back['city'], 'Kurla');
       expect((back['transitions']! as List), hasLength(10));
+    });
+
+    test('names every row by key so the Kotlin side can find it', () {
+      final List<Map<String, Object?>> prayers =
+          (payload['prayers']! as List).cast<Map<String, Object?>>();
+      for (final Map<String, Object?> p in prayers) {
+        expect(p['key'], isNot(isEmpty),
+            reason: 'rows are found by key, not by a human label');
+      }
+      expect(prayers.map((Map<String, Object?> p) => p['key']),
+          containsAll(<String>['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha']));
+    });
+  });
+
+  group('the reading under each prayer', () {
+    test('is today’s pool entry in the reader’s language', () {
+      final List<Map<String, Object?>> prayers =
+          (payload['prayers']! as List).cast<Map<String, Object?>>();
+      final String lang = AppSettings.instance.readingLanguage;
+      for (final Map<String, Object?> p in prayers) {
+        if (p['key'] == 'sunrise') continue;
+        final PrayerReading expected =
+            readingFor(p['key']! as String, DateTime(2026, 10, 12));
+        expect(p['quote'], expected.translationFor(lang),
+            reason: '${p['key']} must show its own day’s reading');
+        expect(p['source'], expected.source);
+      }
+    });
+
+    test('is absent for sunrise — the light is not a prayer', () {
+      final List<Map<String, Object?>> prayers =
+          (payload['prayers']! as List).cast<Map<String, Object?>>();
+      final Map<String, Object?> rise = prayers
+          .firstWhere((Map<String, Object?> p) => p['key'] == 'sunrise');
+      expect(rise.containsKey('quote'), isFalse);
+      expect(rise.containsKey('source'), isFalse);
+    });
+
+    test('tomorrow’s twin travels alongside it', () {
+      final List<Map<String, Object?>> prayers =
+          (payload['prayers']! as List).cast<Map<String, Object?>>();
+      final String lang = AppSettings.instance.readingLanguage;
+      final DateTime tomorrow = DateTime(2026, 10, 13);
+      for (final Map<String, Object?> p in prayers) {
+        expect(p['tomorrowTime'], isNot(isEmpty),
+            reason: 'after midnight the clock must still have a value');
+        if (p['key'] == 'sunrise') continue;
+        final PrayerReading expected =
+            readingFor(p['key']! as String, tomorrow);
+        expect(p['tomorrowQuote'], expected.translationFor(lang));
+        expect(p['tomorrowSource'], expected.source);
+      }
+    });
+
+    test('the payload says when tomorrow starts', () {
+      // Local midnight ending the prepared day — the instant the Kotlin
+      // side must switch every row to its tomorrow twin.
+      final int dayEnd = payload['dayEndMs']! as int;
+      expect(dayEnd, DateTime(2026, 10, 13).millisecondsSinceEpoch);
+      expect(payload['dateLabelTomorrow'], 'Tue, 13 Oct');
+      expect(payload['hijriTomorrow'], isNot(isEmpty));
+      expect(payload['readingLang'], AppSettings.instance.readingLanguage);
+    });
+
+    test('and the whole picture survives the channel as JSON', () {
+      final Map<String, Object?> back =
+          (jsonDecode(jsonEncode(payload)) as Map).cast<String, Object?>();
+      expect(back['dayEndMs'], payload['dayEndMs']);
+      expect(back['readingLang'], payload['readingLang']);
+      final List<Map<String, Object?>> prayers =
+          (back['prayers']! as List).cast<Map<String, Object?>>();
+      expect(prayers.first['quote'], isNot(isEmpty));
     });
   });
 
