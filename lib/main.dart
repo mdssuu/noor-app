@@ -3404,8 +3404,18 @@ class LocationService {
   /// distance sorting is identical across the app.
   static Position? lastPosition;
 
-  static double get anchorLatitude => lastPosition?.latitude ?? fallbackAnchor.x;
-  static double get anchorLongitude => lastPosition?.longitude ?? fallbackAnchor.y;
+  /// The point every distance in the app is measured from — a city pinned in
+  /// Settings first, the phone's own fix second, Mumbai last.
+  ///
+  /// The pinned city is the reader's own answer to "where am I praying from?"
+  /// and it outranks whatever GPS has to say: a masjid list, an "800 m away"
+  /// badge and an OSM search anchored at the phone while the header says
+  /// "Pinned city · Hyderabad" would be three different places at once. With
+  /// no city pinned nothing changes — the fix, or Mumbai before there is one.
+  static double get anchorLatitude =>
+      AppSettings.instance.customLatitude ?? lastPosition?.latitude ?? fallbackAnchor.x;
+  static double get anchorLongitude =>
+      AppSettings.instance.customLongitude ?? lastPosition?.longitude ?? fallbackAnchor.y;
 
   /// Floor applied to every reading.
   ///
@@ -3481,11 +3491,17 @@ class LocationService {
   /// for a masjid down the street while location is switched off. Every
   /// distance the UI shows is gated on this, and it drops out the instant the
   /// switch goes off — see `LocationOffBanner` for how that is explained.
+  ///
+  /// A city pinned in Settings is an honest distance of its own kind: it is
+  /// measured from the place the reader chose, not from a fix that never
+  /// arrived, so it answers "yes" on its own — no service, no permission, no
+  /// satellite in sight.
   static bool get distanceAvailable =>
-      serviceEnabled &&
-      (permissionState == LocationPermission.whileInUse ||
-          permissionState == LocationPermission.always) &&
-      lastPosition != null;
+      AppSettings.instance.hasCustomLocation ||
+      (serviceEnabled &&
+          (permissionState == LocationPermission.whileInUse ||
+              permissionState == LocationPermission.always) &&
+          lastPosition != null);
 
   /// Broadcast whenever [distanceAvailable] flips.
   ///
@@ -4200,6 +4216,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
 
   String _locality = 'Near Mumbai';
+
+  /// The pinned-city anchor `_applyPosition` last built the location picture
+  /// from — `"${customLatitude},${customLongitude}"`.
+  ///
+  /// Settings notify on every toggle, and only a *move* of the pinned city
+  /// changes where distances, the OSM search, the header name and the
+  /// schedule point. Comparing against this is what keeps a madhab flip from
+  /// re-fetching the neighbourhood.
+  String _pinnedAnchor = 'null,null';
   String _query = '';
   bool _scanning = false;
   String _scanStatus = 'Reading the board…';
@@ -4281,6 +4306,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// own: the Today card's chooser writes `today_board_pref` from inside a
   /// bottom sheet, where no pop comes back to refresh anything.
   void _settingsChanged() {
+    // A pinned city is part of *where* this screen is, not just what it
+    // shows: pinning, moving or clearing it moves every distance, the OSM
+    // search, the header's name and the reminder clock — so the
+    // position-derived work runs again, not just a redraw.
+    final String anchor = '${AppSettings.instance.customLatitude},'
+        '${AppSettings.instance.customLongitude}';
+    if (anchor != _pinnedAnchor) {
+      _pinnedAnchor = anchor;
+      LocationService.syncDistanceGate();
+      if (mounted) unawaited(_applyPosition(_position));
+    }
     if (mounted) setState(() {});
   }
 
@@ -4318,14 +4354,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Feeds the home-screen widget its picture of the day.
   ///
+  /// The coordinates are the shared anchor — pinned city first, the phone's
+  /// fix second — so the widget's times are the same times the app shows,
+  /// not whatever the screen last happened to hold.
+  ///
   /// Every failure is swallowed inside [PrayerWidget.push]: a widget that
   /// misses a refresh is stale, and being stale beats an exception taking
   /// the resume path down over a decoration.
   void _refreshHomeWidget() {
     final AppSettings settings = AppSettings.instance;
     unawaited(PrayerWidget.push(
-      latitude: _position?.latitude ?? LocationService.fallbackAnchor.x,
-      longitude: _position?.longitude ?? LocationService.fallbackAnchor.y,
+      latitude: LocationService.anchorLatitude,
+      longitude: LocationService.anchorLongitude,
       areaName: settings.hasCustomLocation
           ? settings.customCity
           : (_locality.isEmpty ? 'Prayer times' : _locality),
@@ -4700,6 +4740,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // account would be scheduled against the previous account's offsets.
     await AppSettings.instance.useProfile(FirebaseAuth.instance.currentUser?.uid);
 
+    // A pinned city names the header before any GPS answer comes back — the
+    // first frame should not read "Near Mumbai" while the reader's own city
+    // is already on disk. The anchor is recorded here too, so the listener
+    // only ever reacts to a *change* the reader makes from now on.
+    final AppSettings settings = AppSettings.instance;
+    _pinnedAnchor = '${settings.customLatitude},${settings.customLongitude}';
+    if (settings.hasCustomLocation && mounted) {
+      setState(() => _locality = settings.customCity);
+    }
+
     // The owner's control document, and the one moment it can still change a
     // profile: loading it brings the wallpaper, the notice and the clips in
     // line with what the panel says, and seeding must happen *while* the
@@ -4795,9 +4845,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// radius, the OpenStreetMap extras, the Azan schedule and the area name.
   ///
   /// Split out of `_bootstrap` because it runs again every time location comes
-  /// back on — the second time without the permission prompt.
+  /// back on — the second time without the permission prompt, and again the
+  /// moment a city is pinned in Settings (see `_settingsChanged`).
+  ///
+  /// A city pinned in Settings is the *effective* position: it outranks the
+  /// phone's own fix, so the OSM search, the schedule and the header name all
+  /// describe the same place the reader chose. Without one this is the GPS
+  /// path exactly as before.
   Future<void> _applyPosition(Position? position) async {
     if (!mounted) return;
+
+    final AppSettings settings = AppSettings.instance;
+    final double? pinnedLat = settings.customLatitude;
+    final double? pinnedLng = settings.customLongitude;
+    final bool pinned = pinnedLat != null && pinnedLng != null;
 
     debugPrint(
       position == null
@@ -4805,15 +4866,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : 'Noor ▸ GPS: ${position.latitude},${position.longitude}'
               '${LocationService.gpsIssue.isEmpty ? '' : ' (cached: ${LocationService.gpsIssue})'}',
     );
+    if (pinned) debugPrint('Noor ▸ pinned city: ${settings.customCity} ($pinnedLat,$pinnedLng)');
 
     setState(() {
       _position = position;
       _locating = false;
     });
 
-    if (position != null) {
+    if (pinned) {
+      // The reader's own city is the header's name — no reverse-geocode of a
+      // GPS fix that no longer decides anything.
+      if (mounted) setState(() => _locality = settings.customCity);
+      // Free OSM masjids *around the pinned city*, not around the phone.
+      unawaited(_loadNearbyPlaces(pinnedLat, pinnedLng));
+      unawaited(NotificationService.scheduleAzan(
+        latitude: pinnedLat,
+        longitude: pinnedLng,
+      ));
+    } else if (position != null) {
       // Free OSM nearby search — runs in the background, never blocks the UI.
-      unawaited(_loadNearbyPlaces(position));
+      unawaited(_loadNearbyPlaces(position.latitude, position.longitude));
       unawaited(NotificationService.scheduleAzan(
         latitude: position.latitude,
         longitude: position.longitude,
@@ -4848,6 +4920,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// which a log line already covers and a banner would only add noise.
   void _showLocationHelp(Position? position) {
     if (!mounted) return;
+
+    // A pinned city already answered "where am I praying from?" — nothing
+    // about a switched-off GPS is wrong *for this reader*, and a banner
+    // telling them their distances are Mumbai's would be simply untrue.
+    if (AppSettings.instance.hasCustomLocation) return;
 
     final bool servicesOff = LocationService.gpsIssue.contains('services are switched off');
     final bool blocked = LocationService.permissionState == LocationPermission.deniedForever;
@@ -4885,17 +4962,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Requirement 2: after the GPS fix, ask OpenStreetMap for the masjids
-  /// around the user and keep them distance-sorted. Never throws.
-  Future<void> _loadNearbyPlaces(Position position) async {
+  /// Requirement 2: after the GPS fix — or from the pinned city, which decides
+  /// just the same — ask OpenStreetMap for the masjids around that point and
+  /// keep them distance-sorted. Never throws.
+  Future<void> _loadNearbyPlaces(double latitude, double longitude) async {
     setState(() => _osmLoading = true);
     final List<MasjidSearchResult> found = await nearbyMasjids(
-      lat: position.latitude,
-      lon: position.longitude,
+      lat: latitude,
+      lon: longitude,
       radiusMetres: _radiusMetres,
       limit: 20,
     );
-    debugPrint('OSM ▸ nearby(${position.latitude},${position.longitude}) -> '
+    debugPrint('OSM ▸ nearby($latitude,$longitude) -> '
         '${found.length} mosque(s)');
     if (!mounted) return;
     setState(() {
@@ -5255,8 +5333,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint('Searching $kProviderLabel for: $q');
       final List<MasjidSearchResult> found = await searchMasjid(
         query: q,
-        lat: _position?.latitude,
-        lon: _position?.longitude,
+        // Bias the search toward the pinned city when there is one, the
+        // phone's fix when there is not — same anchor everything else uses.
+        lat: AppSettings.instance.customLatitude ?? _position?.latitude,
+        lon: AppSettings.instance.customLongitude ?? _position?.longitude,
         limit: 6,
       );
       if (!mounted || token != _placesToken) return;
