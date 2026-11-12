@@ -50,6 +50,12 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
     private fun play(context: Context, intent: Intent) {
         val id = intent.getIntExtra(EXTRA_ID, -1)
         val recurring = intent.getBooleanExtra(EXTRA_RECURRING, true)
+        // How long the phone stays on vibrate once this recitation is over
+        // — the reader's "Silence after Azaan" answer, frozen in when the
+        // alarm was armed. Read here, before any branch returns: both paths
+        // below that actually end a clip (the service, and the inline
+        // fallback) hand it the window they were asked for.
+        val silentMinutes = intent.getIntExtra(EXTRA_SILENT, 0)
 
         // Today's copy puts tomorrow's in place the moment it has rung. A
         // one-shot alarm that does not do this would leave the *second*
@@ -153,6 +159,10 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
             .putExtra(AzaanPlaybackService.EXTRA_TITLE, title)
             .putExtra(AzaanPlaybackService.EXTRA_BODY, body)
             .putExtra(AzaanPlaybackService.EXTRA_ID, id)
+            // The quiet window rides to the service that owns the clip's
+            // end — only a recitation that actually ran may silence the
+            // phone, and that is the one place the end is known.
+            .putExtra(AzaanPlaybackService.EXTRA_SILENT, silentMinutes)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -172,6 +182,12 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
             Log.w(TAG, "foreground start refused, playing inline: ${error.message}")
             AzaanAudio.play(context, sound) {
                 PrayerCard.show(context, id, title, body, playing = false)
+                // No service exists on this road, so the quiet window is
+                // started from here instead. The callback only fires once a
+                // clip has actually run — a play the ringer refused never
+                // starts one — which is exactly the condition the window is
+                // for.
+                RingerSilence.engage(context, silentMinutes)
             }
         }
     }
@@ -194,6 +210,17 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
 
         /** Whether this alarm owns a tomorrow — prayer alarms do, probes do not. */
         const val EXTRA_RECURRING = "recurring"
+
+        /**
+         * Minutes the phone stays on vibrate after this alarm's recitation —
+         * the reader's "Silence after Azaan" choice, frozen in at arm time.
+         *
+         * 0 means the ringer is never touched. It rides the alarm (and the
+         * ledger, so the re-arm keeps it) and is handed to the playback
+         * service below, which starts the window the moment the clip ends —
+         * see `RingerSilence.kt`.
+         */
+        const val EXTRA_SILENT = "silentMinutes"
 
         /** `AzanSound('makkah', …)` — what the app plays when it is not told. */
         private const val DEFAULT_SOUND = "azaan1"

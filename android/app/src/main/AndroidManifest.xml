@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Silence after the Azaan: the ringer is switched to vibrate and back
+         by hand (AudioManager), not through Do Not Disturb — which is why
+         there is no ACCESS_NOTIFICATION_POLICY here, and why this one is
+         the only permission the switch needs. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- The chosen Azaan can be copied into the phone's own ringtone list
          ("Settings > Sound > Phone ringtone"), and on Android 9 and below
          that still means writing one file into the public Ringtones folder —
@@ -172,6 +178,15 @@
              has to be reachable with the app not running. -->
         <receiver
             android:name=".AzaanAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Ends the quiet window an Azaan opened — the exact alarm that
+             puts the ringer back to normal after the chosen minutes. It has
+             to be reachable with the app shut, which is the usual state of
+             a phone sitting on vibrate, so it is registered here rather
+             than at runtime. -->
+        <receiver
+            android:name=".RingerRestoreReceiver"
             android:exported="false" />
 
         <!-- Puts the alarms back after a reboot, an OS or app update, a

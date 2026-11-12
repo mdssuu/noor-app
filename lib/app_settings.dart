@@ -280,6 +280,34 @@ const List<String> kAzaanTimingOptions = <String>[
   kAzaanTimingNone,
 ];
 
+/// How long the phone stays on **vibrate** after an Azaan has finished
+/// reciting — the "Silence after Azaan" row in Settings, in minutes.
+///
+/// The window is answered by `RingerSilence.kt` on Android: the recitation
+/// ends, the ringer goes to vibrate, and an exact alarm puts it back when
+/// the minutes are up. [kAutoSilentOff] is the answer "let the phone ring
+/// exactly as it always did".
+const int kAutoSilentOff = 0;
+
+/// What a profile that has never answered reads as — the middle of the
+/// choices, long enough to cover a short prayer and short enough that a
+/// phone left on vibrate is noticed before the next call is missed.
+const int kAutoSilentDefault = 15;
+
+/// The choices the Settings row offers, in the order they appear.
+///
+/// Only values in this list are ever stored: [AppSettings.load] rejects
+/// anything else, so a hand-edited preference or a value from a build that
+/// offered fewer cannot silence a phone for an hour by accident.
+const List<int> kAutoSilentOptions = <int>[
+  kAutoSilentOff,
+  10,
+  15,
+  30,
+  45,
+  60,
+];
+
 /// The wording the user sees in the "When will the Azaan play?" dropdown.
 ///
 /// The two sources are named in full rather than by "Awwal"/"Jamaat" alone:
@@ -583,6 +611,7 @@ class AppSettings extends ChangeNotifier {
   static const String _kMadhab = 'madhab';
   static const String _kTimeFormat = 'timeFormat';
   static const String _kFontScale = 'fontScale';
+  static const String _kAutoSilent = 'autoSilentMinutes';
   static const String _kHijri = 'hijriAdjustment';
   static const String _kCustomLat = 'customLat';
   static const String _kCustomLng = 'customLng';
@@ -655,6 +684,7 @@ class AppSettings extends ChangeNotifier {
     _kMadhab,
     _kTimeFormat,
     _kFontScale,
+    _kAutoSilent,
     _kHijri,
     _kCustomLat,
     _kCustomLng,
@@ -711,6 +741,11 @@ class AppSettings extends ChangeNotifier {
   String _madhab = 'shafi';
   String _timeFormat = '12';
   double _fontScale = 1.0;
+
+  /// Minutes the phone stays on vibrate after an Azaan — see
+  /// [kAutoSilentOptions]. [kAutoSilentOff] (0) means the ringer is left
+  /// exactly as the reader had it.
+  int _autoSilentMinutes = kAutoSilentDefault;
   int _hijriAdjustment = 0;
   double? _customLat;
   double? _customLng;
@@ -816,6 +851,26 @@ class AppSettings extends ChangeNotifier {
     _fontScale = value.clamp(0.85, 1.30).toDouble();
     notifyListeners();
     _put((SharedPreferences p) => p.setDouble(_key(_kFontScale), _fontScale));
+  }
+
+  int get autoSilentMinutes => _autoSilentMinutes;
+
+  /// Chooses how long the phone stays on vibrate after an Azaan, in minutes.
+  ///
+  /// A value outside [kAutoSilentOptions] is filed as the default rather
+  /// than stored: the native side trusts whatever it is handed for a whole
+  /// window, so the rejection has to happen here, where the row that shows
+  /// the choices lives.
+  ///
+  /// `notifyListeners` is what re-arms the alarms — the armed alarm carries
+  /// this number in its intent, so a change that never rescheduled would
+  /// only reach the *next* prayer the app happened to schedule afterwards.
+  void setAutoSilentMinutes(int value) {
+    _autoSilentMinutes =
+        kAutoSilentOptions.contains(value) ? value : kAutoSilentDefault;
+    notifyListeners();
+    _put((SharedPreferences p) =>
+        p.setInt(_key(_kAutoSilent), _autoSilentMinutes));
   }
   int get hijriAdjustment => _hijriAdjustment;
   bool get notificationsEnabled => _notificationsEnabled;
@@ -1120,6 +1175,13 @@ class AppSettings extends ChangeNotifier {
       _madhab = prefs.getString(_key(_kMadhab)) ?? 'shafi';
       _timeFormat = '12';
       _fontScale = (prefs.getDouble(_key(_kFontScale)) ?? 1.0).clamp(0.85, 1.30).toDouble();
+      // Only the durations the row can show are accepted — the same rule
+      // as [kAzaanTimingOptions] below: anything else (a typo, a build that
+      // offered fewer) falls back to the default instead of being trusted
+      // into a window nobody chose.
+      final int silent = prefs.getInt(_key(_kAutoSilent)) ?? kAutoSilentDefault;
+      _autoSilentMinutes =
+          kAutoSilentOptions.contains(silent) ? silent : kAutoSilentDefault;
       _hijriAdjustment = prefs.getInt(_key(_kHijri)) ?? 0;
       _customLat = prefs.getDouble(_key(_kCustomLat));
       _customLng = prefs.getDouble(_key(_kCustomLng));

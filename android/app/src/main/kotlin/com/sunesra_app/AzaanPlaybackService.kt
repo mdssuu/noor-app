@@ -41,6 +41,26 @@ class AzaanPlaybackService : Service() {
     private var cardTitle: String? = null
     private var cardBody: String? = null
 
+    /**
+     * Minutes the phone stays on vibrate once this recitation ends — the
+     * reader's "Silence after Azaan" choice, carried by the alarm that
+     * started this service.
+     *
+     * 0 (never) until a PLAY intent says otherwise. A STOP that follows
+     * carries no such extra and must not clear the window the clip it
+     * stopped asked for, which is why the value is only taken when present.
+     */
+    private var silentMinutes: Int = 0
+
+    /**
+     * True once a clip actually sounded under this instance.
+     *
+     * The quiet window belongs to a recitation that *happened*: a service
+     * retired before the player took the field — no card, no clip, a ringer
+     * that said no — must leave the phone's ringer exactly as it found it.
+     */
+    private var recited = false
+
     /** True once this instance has actually entered the foreground. */
     private var foregrounded = false
 
@@ -117,6 +137,11 @@ class AzaanPlaybackService : Service() {
         cardTitle = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "Azaan"
         cardBody = intent?.getStringExtra(EXTRA_BODY)
         (intent?.getIntExtra(EXTRA_ID, -1) ?: -1).let { id -> if (id >= 0) cardId = id }
+        // Present only on the PLAY intent that asked for a window; a STOP
+        // arriving mid-clip must not zero out the one the clip asked for.
+        (intent?.getIntExtra(EXTRA_SILENT, -1) ?: -1).let { silent ->
+            if (silent >= 0) silentMinutes = silent
+        }
 
         // Foreground first: the receiver started this with
         // startForegroundService(), which must be answered within five
@@ -183,6 +208,9 @@ class AzaanPlaybackService : Service() {
             finish()
             return START_NOT_STICKY
         }
+        // The player took the field: from here on, this instance owns a
+        // recitation — and the quiet window that follows one.
+        recited = true
 
         // The card and the clip now live and die together — but only where
         // the phone can answer the question. `getActiveNotifications()`
@@ -273,6 +301,14 @@ class AzaanPlaybackService : Service() {
         releaseSession()
         if (!retired) {
             retired = true
+            // The recitation is over — hand the phone its quiet window, if
+            // this prayer asked for one. Guarded by `recited`: a service
+            // that never heard a clip must not silence a ringer nobody
+            // rang, and `retired` keeps the window to exactly one start
+            // however many roads reach this method.
+            if (recited && silentMinutes > 0) {
+                RingerSilence.engage(this, silentMinutes)
+            }
             if (foregrounded) {
                 @Suppress("DEPRECATION")
                 stopForeground(true)
@@ -451,6 +487,15 @@ class AzaanPlaybackService : Service() {
 
         /** The reminder's own line, so the card can say what the banner did. */
         const val EXTRA_BODY = "body"
+
+        /**
+         * Minutes the phone stays on vibrate once this recitation ends —
+         * the reader's "Silence after Azaan" choice, handed over by
+         * [AzaanAlarmReceiver] and spent by [RingerSilence.engage] in
+         * [finish]. Absent on STOP/DISMISS intents, which must not clear
+         * the window the clip they stopped asked for.
+         */
+        const val EXTRA_SILENT = "silentMinutes"
 
         /**
          * The prayer this run is for — the id the card is posted under.

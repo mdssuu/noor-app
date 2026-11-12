@@ -2500,6 +2500,10 @@ class NotificationService {
         raw: _silentRaw,
         title: cardTitle,
         body: cardBody,
+        // A muted bell never recites, so there is no recitation for a quiet
+        // window to follow — the receiver answers this alarm with the card
+        // and returns before the service (or the ringer) is ever touched.
+        silentMinutes: 0,
       );
       
       debugPrint('Silent Azan ▸ scheduled notification for $prayer at ${AppSettings.instance.format(at)}');
@@ -2780,6 +2784,11 @@ class NotificationService {
         raw: _bellRaw(key, masjidId),
         title: cardTitle,
         body: cardBody,
+        // The reader's own "Silence after Azaan" answer rides the alarm so
+        // the phone can go to vibrate the moment this recitation ends —
+        // a bell on Mute carries it too, harmlessly: that path never plays,
+        // so the receiver never reaches the service.
+        silentMinutes: settings.autoSilentMinutes,
       );
     }
 
@@ -3181,6 +3190,9 @@ class NotificationService {
         raw: _bellRaw(key, entry.masjidId),
         title: cardTitle,
         body: cardBody,
+        // A favourite's recitation silences the phone the same way the
+        // calculated one does — one reader, one choice, one window.
+        silentMinutes: AppSettings.instance.autoSilentMinutes,
       );
     }
 
@@ -3371,6 +3383,10 @@ class NotificationService {
         // Not recurring: a diagnostic that resurrects itself every morning
         // would be indistinguishable from the bug it exists to test for.
         recurring: false,
+        // And never a quiet window: a button a reader pressed to *hear*
+        // their Azaan must not leave the phone on vibrate for a quarter of
+        // an hour afterwards.
+        silentMinutes: 0,
       );
     } catch (error) {
       debugPrint('Noor ▸ scheduled test reminder failed: $error');

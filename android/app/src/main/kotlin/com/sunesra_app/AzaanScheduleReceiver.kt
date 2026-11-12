@@ -31,6 +31,13 @@ class AzaanScheduleReceiver : BroadcastReceiver() {
         val rearmed = AzaanAlarms.rearmAll(context)
         Log.i(TAG, "$action — $rearmed prayer alarm(s) put back")
 
+        // The quiet window an Azaan opened holds an alarm of its own, and it
+        // died with whatever just took AlarmManager's list down. Without
+        // this, a phone restarted mid-window comes back on vibrate with
+        // nothing scheduled ever to take it off; a window whose minutes ran
+        // out while the phone was off is finished here instead.
+        RingerSilence.reconcile(context)
+
         // The clock moved under the lock-screen card too: re-read its stored
         // picture against the new time and re-arm the flip that keeps it.
         LockScreenNotifier.refresh(context)

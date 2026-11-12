@@ -255,6 +255,15 @@ class _SettingsScreenState extends State<SettingsScreen>
         child: Row(children: children),
       );
 
+  /// One duration of the "Silence after Azaan" choices — `Off` for
+  /// [kAutoSilentOff], minutes spelled out for the rest, so a row of
+  /// numbers can never be read as a count of anything.
+  Widget _silentOption(int minutes) => _option(
+        label: minutes == kAutoSilentOff ? 'Off' : '$minutes min',
+        selected: _settings.autoSilentMinutes == minutes,
+        onTap: () => _settings.setAutoSilentMinutes(minutes),
+      );
+
   @override
   Widget build(BuildContext context) {
     return NoorScaffold(
@@ -581,6 +590,29 @@ class _SettingsScreenState extends State<SettingsScreen>
                     'each prayer’s row: Azaan, Mute or Band, with the '
                     'timing chips right there.',
                   ),
+                if (_settings.notificationsEnabled) ...<Widget>[
+                  _label('Silence after Azaan'),
+                  _hint('When the Azaan finishes, the phone stays on '
+                      'vibrate for this long and then rings normally again '
+                      'by itself. An Azaan that arrives while it is quiet '
+                      'stays quiet too — its card still appears.'),
+                  // Two rows of three: six chips edge to edge would leave
+                  // each one too narrow to read its own unit.
+                  _optionRow(<Widget>[
+                    _silentOption(kAutoSilentOff),
+                    const SizedBox(width: 8),
+                    _silentOption(10),
+                    const SizedBox(width: 8),
+                    _silentOption(15),
+                  ]),
+                  _optionRow(<Widget>[
+                    _silentOption(30),
+                    const SizedBox(width: 8),
+                    _silentOption(45),
+                    const SizedBox(width: 8),
+                    _silentOption(60),
+                  ]),
+                ],
                 if (!_settings.notificationsEnabled)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),

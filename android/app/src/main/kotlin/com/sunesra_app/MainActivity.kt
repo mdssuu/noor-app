@@ -202,6 +202,12 @@ class MainActivity : FlutterActivity() {
                         // Prayer alarms come back tomorrow; the Settings probe
                         // deliberately does not, or it would ring every morning.
                         recurring = call.argument<Boolean>("recurring") ?: true,
+                        // How long the phone stays on vibrate after this
+                        // recitation — the reader's "Silence after Azaan"
+                        // choice, frozen in now so a later Settings change
+                        // cannot rewrite an alarm that is already armed.
+                        // 0 (or absent) never touches the ringer.
+                        silentMinutes = call.argument<Int>("silentMinutes") ?: 0,
                     )
                     result.success(null)
                 }

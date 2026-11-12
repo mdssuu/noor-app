@@ -115,6 +115,7 @@ class AzaanAlarm {
     String? title,
     String? body,
     bool recurring = true,
+    int silentMinutes = 0,
   }) async {
     install();
     await _call('schedule', <String, Object?>{
@@ -124,6 +125,12 @@ class AzaanAlarm {
       'title': title,
       'body': body,
       'recurring': recurring,
+      // The reader's "Silence after Azaan" choice, frozen into the alarm at
+      // the moment it is armed: the recitation ends, the phone goes to
+      // vibrate for this long, and the native side puts it back on its own.
+      // 0 — the default, and what the test probe sends — never touches the
+      // ringer. See `RingerSilence.kt`.
+      'silentMinutes': silentMinutes,
     });
   }
 

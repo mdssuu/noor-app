@@ -52,6 +52,15 @@ object AzaanAlarms {
          */
         val body: String? = null,
         val recurring: Boolean,
+        /**
+         * Minutes the phone stays on vibrate after this alarm's recitation —
+         * 0 for "never", the reader's "Silence after Azaan" choice.
+         *
+         * Written into the ledger for the same reason [body] is: tomorrow's
+         * copy is rebuilt from this record, and one that forgot its quiet
+         * window would ring loud again the moment the day rolled over.
+         */
+        val silentMinutes: Int = 0,
     )
 
     /**
@@ -62,6 +71,12 @@ object AzaanAlarms {
      * boot/time-change broadcast re-arms all of them from the ledger. The
      * Settings "test reminder" probe passes `false` — a diagnostic that
      * resurrects itself every morning would be a bug, not a feature.
+     *
+     * [silentMinutes] is the reader's "Silence after Azaan" answer, carried
+     * in the alarm's own extras (and in the ledger, for the re-arm) so the
+     * receiver can hand it to the playback service, which starts the quiet
+     * window the moment the recitation ends. 0 means the ringer is left
+     * alone.
      */
     fun schedule(
         context: Context,
@@ -71,15 +86,16 @@ object AzaanAlarms {
         title: String?,
         body: String? = null,
         recurring: Boolean = true,
+        silentMinutes: Int = 0,
     ) {
         val app = context.applicationContext
         val am = app.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val pending = pendingIntent(app, id, sound, title, body, recurring)
+        val pending = pendingIntent(app, id, sound, title, body, recurring, silentMinutes)
 
         // The ledger is written *before* the arm, never after. A crash in
         // between used to leave an alarm nothing could ever cancel or re-arm,
         // because the bookkeeping came second.
-        remember(app, id, specFor(atMs, sound, title, body, recurring))
+        remember(app, id, specFor(atMs, sound, title, body, recurring, silentMinutes))
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -145,7 +161,18 @@ object AzaanAlarms {
         if (!spec.recurring) return false
         val next = nextOccurrence(spec.hour, spec.minute)
         Log.i(TAG, "azaan $id fired — re-armed for ${spec.hour}:${ "%02d".format(spec.minute) }")
-        schedule(app, id, next, spec.sound, spec.title, spec.body, recurring = true)
+        schedule(
+            app,
+            id,
+            next,
+            spec.sound,
+            spec.title,
+            spec.body,
+            recurring = true,
+            // Tomorrow's copy keeps tomorrow's quiet window too — the
+            // reader chose it once, for every prayer, not for one alarm.
+            silentMinutes = spec.silentMinutes,
+        )
         return true
     }
 
@@ -175,9 +202,11 @@ object AzaanAlarms {
                     spec.title,
                     // The card's own line travels with it: a boot re-arm
                     // that forgot the body would come back able to make a
-                    // sound and unable to say what for.
+                    // sound and unable to say what for. The quiet window
+                    // travels the same way, for the same reason.
                     spec.body,
                     recurring = true,
+                    silentMinutes = spec.silentMinutes,
                 )
                 rearmed++
             } catch (error: Exception) {
@@ -246,6 +275,7 @@ object AzaanAlarms {
         title: String?,
         body: String?,
         recurring: Boolean,
+        silentMinutes: Int = 0,
     ): PendingIntent {
         val intent = Intent(context, AzaanAlarmReceiver::class.java)
             .setAction(AzaanAlarmReceiver.ACTION_PLAY)
@@ -258,6 +288,11 @@ object AzaanAlarms {
             .putExtra(AzaanAlarmReceiver.EXTRA_TITLE, title)
             .putExtra(AzaanAlarmReceiver.EXTRA_BODY, body)
             .putExtra(AzaanAlarmReceiver.EXTRA_RECURRING, recurring)
+            // …and this one tells the receiver how long the phone stays on
+            // vibrate once the recitation is over. Same ride, same rule:
+            // `FLAG_UPDATE_CURRENT` means the value armed *last* is the one
+            // the receiver reads, which is the reader's current choice.
+            .putExtra(AzaanAlarmReceiver.EXTRA_SILENT, silentMinutes)
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags = flags or PendingIntent.FLAG_IMMUTABLE
@@ -294,6 +329,10 @@ object AzaanAlarms {
                     title = if (entry.isNull("t")) null else entry.optString("t"),
                     body = if (entry.isNull("b")) null else entry.optString("b"),
                     recurring = entry.optBoolean("r", true),
+                    // Clamped to the longest window the Settings row can ask
+                    // for, generously: a corrupt ledger must not be able to
+                    // silence a phone for days.
+                    silentMinutes = entry.optInt("k", 0).coerceIn(0, 240),
                 )
             }
             out
@@ -313,6 +352,7 @@ object AzaanAlarms {
         title: String?,
         body: String?,
         recurring: Boolean,
+        silentMinutes: Int = 0,
     ): Spec {
         val calendar = java.util.Calendar.getInstance().apply { timeInMillis = atMs }
         return Spec(
@@ -322,6 +362,7 @@ object AzaanAlarms {
             title = title,
             body = body,
             recurring = recurring,
+            silentMinutes = silentMinutes,
         )
     }
 
@@ -349,7 +390,8 @@ object AzaanAlarms {
                     .put("s", spec.sound)
                     .put("t", spec.title ?: org.json.JSONObject.NULL)
                     .put("b", spec.body ?: org.json.JSONObject.NULL)
-                    .put("r", spec.recurring),
+                    .put("r", spec.recurring)
+                    .put("k", spec.silentMinutes),
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
