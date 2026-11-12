@@ -76,6 +76,26 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra(EXTRA_TITLE)
         val body = intent.getStringExtra(EXTRA_BODY)
 
+        // The Azaan is off and only the quiet window was asked for. Nothing
+        // is posted and nothing is played — the reader said no to the
+        // reminder and yes to the silence — so the window opens here, at the
+        // masjid's own instant, and tomorrow's copy is already in place above.
+        //
+        // The gate is `ringerAllowsRecitation`: a phone already on vibrate or
+        // silent has nothing to take away, and filing *that* as the mode to
+        // restore would hand back a mode the reader never had. This is the
+        // one path that silences without a recitation behind it, and it is
+        // allowed precisely because the reader asked for the silence alone.
+        if (sound == SOUND_QUIET) {
+            if (silentMinutes > 0 && AzaanAudio.ringerAllowsRecitation(context)) {
+                RingerSilence.engage(context, silentMinutes)
+                Log.i(TAG, "azaan $id — Azaan off, quiet window opened for $silentMinutes min")
+            } else {
+                Log.i(TAG, "azaan $id — quiet alarm, nothing to silence")
+            }
+            return
+        }
+
         // A bell on `silent` promises a card and no recitation — that is
         // what Mute means, and what the profile's own "None (silent)" means.
         // This alarm exists precisely so that promise is kept on the path
@@ -197,6 +217,19 @@ class AzaanAlarmReceiver : BroadcastReceiver() {
         const val EXTRA_ID = "id"
         const val EXTRA_SOUND = "sound"
         const val EXTRA_TITLE = "title"
+
+        /**
+         * The `sound` of an alarm that exists only to open the quiet window.
+         *
+         * Not the muted bell's job: that one means "post the card and play
+         * nothing", which still wants a notification. This one means the
+         * the reader turned the Azaan off entirely and asked, separately, for
+         * the phone to go quiet at the masjid's Jamaat time — no card, no
+         * clip, just the window. Spelled by `NotificationService`'s
+         * `_quietRaw`; a different string here is read as a file name and
+         * falls through to a recitation nobody asked for.
+         */
+        const val SOUND_QUIET = "quiet"
 
         /**
          * The line the reminder carries.

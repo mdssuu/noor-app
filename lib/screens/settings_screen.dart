@@ -590,29 +590,38 @@ class _SettingsScreenState extends State<SettingsScreen>
                     'each prayer’s row: Azaan, Mute or Band, with the '
                     'timing chips right there.',
                   ),
-                if (_settings.notificationsEnabled) ...<Widget>[
-                  _label('Silence after Azaan'),
-                  _hint('When the Azaan finishes, the phone stays on '
-                      'vibrate for this long and then rings normally again '
-                      'by itself. An Azaan that arrives while it is quiet '
-                      'stays quiet too — its card still appears.'),
-                  // Two rows of three: six chips edge to edge would leave
-                  // each one too narrow to read its own unit.
-                  _optionRow(<Widget>[
-                    _silentOption(kAutoSilentOff),
-                    const SizedBox(width: 8),
-                    _silentOption(10),
-                    const SizedBox(width: 8),
-                    _silentOption(15),
-                  ]),
-                  _optionRow(<Widget>[
-                    _silentOption(30),
-                    const SizedBox(width: 8),
-                    _silentOption(45),
-                    const SizedBox(width: 8),
-                    _silentOption(60),
-                  ]),
-                ],
+                // The quiet window is asked for whether or not the Azaan is:
+                // it is a choice about the *ringer*, and a reader who turned
+                // the reminders off but still wants the phone to go quiet at
+                // the masjid's Jamaat time has to be able to see and change
+                // the answer. Hiding the row behind the Azaan switch made
+                // that combination invisible — and un-settable.
+                _label('Silence after Azaan'),
+                _hint(_settings.notificationsEnabled
+                    ? 'When the Azaan finishes, the phone stays on '
+                        'vibrate for this long and then rings normally again '
+                        'by itself. An Azaan that arrives while it is quiet '
+                        'stays quiet too — its card still appears.'
+                    : 'With the Azaan off, your phone still goes on vibrate '
+                        'at your chosen masjid’s Jamaat time for this long, '
+                        'then rings normally again by itself. Nothing is '
+                        'posted and nothing is played.'),
+                // Two rows of three: six chips edge to edge would leave
+                // each one too narrow to read its own unit.
+                _optionRow(<Widget>[
+                  _silentOption(kAutoSilentOff),
+                  const SizedBox(width: 8),
+                  _silentOption(10),
+                  const SizedBox(width: 8),
+                  _silentOption(15),
+                ]),
+                _optionRow(<Widget>[
+                  _silentOption(30),
+                  const SizedBox(width: 8),
+                  _silentOption(45),
+                  const SizedBox(width: 8),
+                  _silentOption(60),
+                ]),
                 if (!_settings.notificationsEnabled)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),

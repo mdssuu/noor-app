@@ -123,6 +123,32 @@ object AzaanAudio {
     private var wakeLock: PowerManager.WakeLock? = null
     private var volumePoll: Runnable? = null
 
+    /**
+     * The end of the run currently on the field — the service's `finish()`,
+     * or the receiver's inline card-and-window callback.
+     *
+     * A stop is an end too, and that is the whole of this field. Tearing the
+     * player down used to be the *entire* of [stop], so a recitation ended
+     * by [watchStreamVolume] — the road a phone with no recitation screen
+     * takes, which is most phones — told nobody: the service never retired,
+     * the card stayed on "playing", and the quiet window never opened,
+     * because only the service's `finish()` knows a recitation is over and
+     * may silence the ringer for it. "I stopped the Azaan with the volume
+     * button and the phone never went quiet" is exactly that silence.
+     *
+     * Taken rather than read: one end, one window, however many roads reach
+     * it — the natural completion takes it here as well, so a later stop
+     * cannot open a second window for a clip that has already finished.
+     */
+    private var endOfRun: (() -> Unit)? = null
+
+    /** Hands back the run's own end and forgets it, so it fires once. */
+    private fun takeEndOfRun(): (() -> Unit)? {
+        val cb = endOfRun
+        endOfRun = null
+        return cb
+    }
+
     /** Set by MainActivity so a preview can drop its "playing" highlight. */
     @Volatile
     var onFinished: (() -> Unit)? = null
@@ -189,7 +215,10 @@ object AzaanAudio {
             return false
         }
 
-        stopLocked()
+        // Clear any earlier run without announcing its end: the caller is
+        // replacing it, and a callback fired here would retire the very
+        // service about to take the new clip under its care.
+        stopLocked(notifyEnd = false)
 
         val mp = MediaPlayer()
         try {
@@ -227,19 +256,27 @@ object AzaanAudio {
         }
 
         mp.setOnCompletionListener {
+            player = null
+            val ended = takeEndOfRun()
             release()
-            onStopped?.invoke()
+            ended?.invoke()
             notifyEnded()
         }
         mp.setOnErrorListener { _, _, _ ->
             Log.w(TAG, "playback error for $sound")
+            player = null
+            val ended = takeEndOfRun()
             release()
-            onStopped?.invoke()
+            ended?.invoke()
             notifyEnded()
             true
         }
 
         player = mp
+        // From here the run owns an end: whoever stops it — the decoder, the
+        // rocker, the card, the notification's button — hands this over, and
+        // the service's `finish()` opens the quiet window from it.
+        endOfRun = onStopped
         mp.start()
         Log.i(
             TAG,
@@ -363,11 +400,26 @@ object AzaanAudio {
         }
     }
 
+    /**
+     * Brings the recitation down, wherever the stop came from — and tells
+     * whoever asked for the end of *this* run that it is over.
+     *
+     * The second half is the point: the volume watcher, the recitation
+     * screen and the notification's button all end up here, and the service
+     * behind them opens the quiet window only from its own `finish()`. A
+     * stop that merely tore the player down left that window unopened —
+     * "stopped the Azaan, phone never went quiet". Nothing is announced when
+     * no clip was actually on the field, so a stop against silence cannot
+     * retire a service that never recited.
+     */
     @Synchronized
-    fun stop() = stopLocked()
+    fun stop() = stopLocked(notifyEnd = true)
 
-    private fun stopLocked() {
+    private fun stopLocked(notifyEnd: Boolean) {
         val old = player
+        // Always taken, never merely read: one end fires once, whether it
+        // comes from the decoder or from here.
+        val ended = if (old != null) takeEndOfRun() else null
         player = null
         if (old != null) {
             // The one line that proves a stop actually reached the player —
@@ -388,6 +440,10 @@ object AzaanAudio {
             }
         }
         release()
+
+        if (!notifyEnd || old == null) return
+        ended?.invoke()
+        notifyEnded()
     }
 
     private fun release() {

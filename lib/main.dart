@@ -2239,6 +2239,18 @@ class NotificationService {
   /// "the profile asked for no sound" with the same word.
   static const String _silentRaw = 'silent';
 
+  /// The `raw` an alarm carries when the reader asked for silence and
+  /// nothing else: the Azaan is off, and only the quiet window is wanted.
+  ///
+  /// Read by `AzaanAlarmReceiver` as "open the window, post nothing, play
+  /// nothing" — a different word from [_silentRaw] on purpose, because the
+  /// two promise different things. [_silentRaw] is a *muted bell*: the
+  /// reminder is the whole of what was asked for, so its card still arrives.
+  /// This one is the reminder declined outright, with the silence kept: no
+  /// card would contradict the master switch the reader turned off, and a
+  /// clip would contradict it louder.
+  static const String _quietRaw = 'quiet';
+
   /// The `raw` string [prayer]'s alarm carries, which the Kotlin side reads
   /// as a file name.
   ///
@@ -2999,6 +3011,16 @@ class NotificationService {
     final bool anyJamaat =
         kNotifiablePrayers.any(settings.schedulesJamaatFor);
     final bool armsJamaat = anyJamaat && settings.notificationsEnabled;
+    // The Azaan being off does not switch the quiet window off: "Silence
+    // after Azaan" is a choice about the *ringer*, asked separately, and a
+    // reader who said no to the reminder and yes to the silence still gets
+    // it — at the chosen masjid's Jamaat time, with nothing posted and
+    // nothing played. Deliberately not gated on `anyJamaat` either: "When
+    // will the Azaan play?" is one of the azaan settings this is meant to
+    // outlive, and a default of "Only at Awwal time" would otherwise leave
+    // the masjid's own instant with no silence at all.
+    final bool armsQuiet =
+        !settings.notificationsEnabled && settings.autoSilentMinutes > 0;
     if (!anyJamaat) {
       // "When will the Azaan play?" — this pass arms the *Jamaat* reminders,
       // asked per prayer now: returning here is exactly the "Only at Awwal
@@ -3007,7 +3029,10 @@ class NotificationService {
       debugPrint('Azan ▸ no prayer asks for the masjid’s Jamaat clock: '
           'favourite-masjid Jamaat alerts cancelled, none scheduled');
     } else if (!settings.notificationsEnabled) {
-      debugPrint('Azan ▸ favourite masjid alerts: master switch off, none scheduled');
+      debugPrint(armsQuiet
+          ? 'Azan ▸ master switch off — quiet window only, at the chosen '
+              'masjid’s Jamaat time'
+          : 'Azan ▸ favourite masjid alerts: master switch off, none scheduled');
     }
 
     final List<String> favourites = (await FavouriteStore.cached())..sort();
@@ -3016,9 +3041,9 @@ class NotificationService {
     // switched off. Resolved before the reads because there is nothing else
     // to read — a star alone arms nothing.
     final String chosen = settings.todayBoardId;
-    final bool chosenRings =
-        armsJamaat && favourites.contains(chosen) && settings.favAlertFor(chosen);
-    if (armsJamaat) {
+    final bool chosenRings = (armsJamaat || armsQuiet) &&
+        favourites.contains(chosen) && settings.favAlertFor(chosen);
+    if (armsJamaat || armsQuiet) {
       if (chosen.isEmpty) {
         debugPrint('Azan ▸ no masjid selected on Home — nothing scheduled');
       } else if (!chosenRings) {
@@ -3085,7 +3110,7 @@ class NotificationService {
     // cleared by range — an un-starred masjid must not keep reciting.
     await AzaanAlarm.cancelRange(_favIdFloor, _favIdCeiling);
 
-    if (!armsJamaat) return;
+    if (!armsJamaat && !armsQuiet) return;
 
     // A pick whose star has gone must not survive this pass — the star and
     // the alert are one answer.
@@ -3103,6 +3128,7 @@ class NotificationService {
 
     final DateTime now = DateTime.now();
     int armed = 0;
+    int quiet = 0;
 
     final ({int index, String masjidId, Map<String, dynamic> data}) entry =
         resolved.first;
@@ -3118,8 +3144,10 @@ class NotificationService {
       if (!settings.notifyOnFor(key)) continue;
       // The masjid's clock is this prayer's to allow, same as the
       // calculated one above — a prayer set to "Only at Awwal time" must
-      // not find its board's Jamaat cell ringing beside it.
-      if (!settings.schedulesJamaatFor(key)) continue;
+      // not find its board's Jamaat cell ringing beside it. Asked only
+      // when the Azaan may sound at all: in the quiet-only pass this is
+      // one of the azaan settings the window exists to outlive.
+      if (armsJamaat && !settings.schedulesJamaatFor(key)) continue;
 
       final int? minutesOfDay = parseClockTime((data[key] as String?) ?? '');
       if (minutesOfDay == null) continue;
@@ -3148,10 +3176,14 @@ class NotificationService {
       final String cardBody = minutesBefore == 0
           ? 'Jamaat at $where.'
           : '${prayerByKey(key).label} in $minutesBefore minutes at $where.';
-      if (receiverOwnsTheCard()) {
+      // A quiet-only pass posts nothing: the master switch is off, so a
+      // reminder would contradict the very setting that turned this pass
+      // from a recitation into a window on the ringer. The card rule below
+      // is unchanged for every pass that still has a card to speak for.
+      if (armsJamaat && receiverOwnsTheCard()) {
         debugPrint('Azan ▸ $where/$key: receiver card stands in for the '
             'banner — one prayer, one notification');
-      } else {
+      } else if (armsJamaat) {
         try {
           await _plugin.zonedSchedule(
             id: base + p,
@@ -3187,16 +3219,27 @@ class NotificationService {
       await AzaanAlarm.schedule(
         id: base + p,
         at: fire,
-        raw: _bellRaw(key, entry.masjidId),
+        // The Azaan off with the window on carries a word of its own: the
+        // receiver opens the quiet window at `fire` and posts nothing, where
+        // a muted bell would still post its card.
+        raw: armsJamaat ? _bellRaw(key, entry.masjidId) : _quietRaw,
         title: cardTitle,
         body: cardBody,
         // A favourite's recitation silences the phone the same way the
-        // calculated one does — one reader, one choice, one window.
+        // calculated one does — one reader, one choice, one window. The
+        // quiet-only pass carries the same number for the same reason: it
+        // *is* the window, with no recitation in front of it.
         silentMinutes: AppSettings.instance.autoSilentMinutes,
       );
+      if (!armsJamaat) quiet++;
     }
 
-    debugPrint('Azan ▸ scheduled $armed favourite-masjid alert(s) for $where');
+    if (quiet > 0) {
+      debugPrint('Azan ▸ $quiet quiet-window alarm(s) at $where — the Azaan '
+          'is off, only the ringer is spoken for');
+    } else {
+      debugPrint('Azan ▸ scheduled $armed favourite-masjid alert(s) for $where');
+    }
   }
 
   /// Reads a favourite's board, saying *how* the read ended.

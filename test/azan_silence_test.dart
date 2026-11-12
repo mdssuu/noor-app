@@ -52,7 +52,7 @@ void main() {
             'person gave on purpose, not two halves of one.');
     expect(
         audio.indexOf('ringerAllowsRecitation(app)'),
-        lessThan(audio.indexOf('stopLocked()')),
+        lessThan(audio.indexOf('stopLocked(notifyEnd = false)')),
         reason: 'the check must come first — after it the player is already '
             'built, a wake lock is held and the service has announced itself.');
     expect(audio, contains('recitation declined'),
